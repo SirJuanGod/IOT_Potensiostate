@@ -1,0 +1,13 @@
+# ESP-IDF specific
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# Binary and generated files
+*.bin
+*.elf
+*.map
+*.hex
+*.dfu
