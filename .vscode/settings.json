@@ -1,3 +1,6 @@
 {
-    "cmake.sourceDirectory": "D:/USC/Tesis/Files/data_takes/version_1.0"
+    "cmake.environment": {
+        "IDF_PATH": "C:/esp/v6.0/esp-idf"
+    },
+    "idf.currentSetup": "C:\\esp\\v6.0\\esp-idf"
 }
