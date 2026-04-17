@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "data_takes"
+		},
+		{
+			"name": "Potensiostate",
+			"path": "data_takes/Potensiostate"
+		}
+	],
+	"settings": {}
+}
