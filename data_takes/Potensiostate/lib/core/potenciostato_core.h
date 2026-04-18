@@ -27,14 +27,4 @@ void potenciostato_stop_measurement(void);
  */
 bool potenciostato_is_measuring(void);
 
-/**
- * @brief Escribe un valor de 16 bits al DAC AD5662 (Normal Operation).
- */
-esp_err_t dac_write(uint16_t code);
-
-/**
- * @brief Lee el resultado de conversión del ADS1115 (transacción combinada).
- */
-esp_err_t adc_read(int16_t *raw_value);
-
 #endif /* POTENCIOSTATO_CORE_H */

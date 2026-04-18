@@ -46,7 +46,6 @@ typedef struct {
 
 #define MAX_MEAS_POINTS     400u
 #define JSON_BUF_SIZE       8192u
-#define DAC_FRAME_BYTES     3u
 
 static volatile bool      s_measuring       = false;
 static volatile bool      s_stop_requested  = false;
@@ -93,16 +92,7 @@ static uint16_t voltage_mv_to_dac_code(float voltage_mv)
  */
 static esp_err_t dac_write(uint16_t code)
 {
-    DMA_ATTR static uint8_t tx_buf[DAC_FRAME_BYTES];
-
-    /* Byte 0: bits[23:16] = 0b00 (PD1=0, PD0=0) + bits[15:14] del código */
-    tx_buf[0] = (uint8_t)((code >> 14) & 0x03u);
-    /* Byte 1: bits[13:6] del código */
-    tx_buf[1] = (uint8_t)((code >> 6)  & 0xFFu);
-    /* Byte 2: bits[5:0] del código + 2 bits don't care */
-    tx_buf[2] = (uint8_t)((code << 2)  & 0xFCu);
-
-    return spi_driver_transfer_buffer(tx_buf, NULL, DAC_FRAME_BYTES);
+    return spi_driver_write_dac(code, ADVICE_PD_NORMAL, 100);
 }
 
 /* ── Control ADS1115 ────────────────────────────────────────────────────── */
