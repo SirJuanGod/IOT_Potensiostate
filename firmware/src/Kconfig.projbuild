@@ -1,0 +1,24 @@
+menu "Potenciostato"
+
+    config PS_WIFI_SSID
+        string "SSID de WiFi"
+        default ""
+
+    config PS_WIFI_PASSWORD
+        string "Contraseña de WiFi"
+        default ""
+
+    config PS_MQTT_URI
+        string "URI del broker MQTT"
+        default "mqtt://broker.hivemq.com"
+
+    config PS_DEVICE_ID
+        string "ID del dispositivo (prefijo de topics)"
+        default "ps01"
+
+    config PS_DAC_VREF_MV
+        int "Referencia del AD5662 (mV)"
+        range 1500 5000
+        default 3300
+
+endmenu
