@@ -2,7 +2,6 @@
 #include <string.h>
 #include "esp_log.h"
 #include "freertos/queue.h"
-#include "freertos/semphr.h"
 #include "net.h"
 
 #define BLOCK_BYTES 4096
@@ -13,9 +12,7 @@ typedef struct { ps_pass_ctx_t ctx; TaskHandle_t done; } job_t;
 
 static const char *TAG = "pub";
 static QueueHandle_t s_q;
-static SemaphoreHandle_t s_status_mtx;
 static char s_blk[BLOCK_BYTES];     /* único buffer de bloques; solo lo usa pub_task */
-static char s_st[160];              /* buffer de pub_status, protegido por s_status_mtx */
 
 /* Envía con reintentos cada 500 ms hasta el plazo (vTaskDelay permitido: esto no es la ruta de medida). */
 static bool send_retry(const char *sub, int len, TickType_t deadline)
@@ -82,8 +79,7 @@ static void pub_task(void *arg)
 esp_err_t pub_start(void)
 {
     s_q = xQueueCreate(1, sizeof(job_t));
-    s_status_mtx = xSemaphoreCreateMutex();
-    if (!s_q || !s_status_mtx) return ESP_ERR_NO_MEM;
+    if (!s_q) return ESP_ERR_NO_MEM;
     return xTaskCreate(pub_task, "pub_task", 6144, NULL, 3, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
@@ -101,8 +97,9 @@ void pub_publish_pass(const ps_pass_ctx_t *ctx, TaskHandle_t done_task)
 
 void pub_status(const char *state, const ps_err_t *err)
 {
-    if (!s_status_mtx || xSemaphoreTake(s_status_mtx, portMAX_DELAY) != pdTRUE) return;
-    int len = proto_write_status(s_st, sizeof s_st, state, err);
-    if (len > 0) net_publish("status", s_st, len, strcmp(state, "idle") == 0 || strcmp(state, "offline") == 0);
-    xSemaphoreGive(s_status_mtx);
+    /* Buffer en la pila y sin mutex: on_cmd llama aquí desde la tarea de esp-mqtt, que ya tiene tomado el
+     * lock de la API de MQTT; un mutex propio retenido por otra tarea bloqueada en ese lock sería un abrazo mortal. */
+    char st[160];
+    int len = proto_write_status(st, sizeof st, state, err);
+    if (len > 0) net_publish("status", st, len, strcmp(state, "idle") == 0 || strcmp(state, "offline") == 0);
 }

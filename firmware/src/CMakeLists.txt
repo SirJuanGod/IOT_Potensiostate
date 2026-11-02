@@ -1,2 +1,2 @@
-idf_component_register(SRCS "main.c" "lmp91000.c" "ad5662.c" "ads1115.c" "store.c" "net.c" "pub.c" INCLUDE_DIRS "."
+idf_component_register(SRCS "main.c" "engine.c" "lmp91000.c" "ad5662.c" "ads1115.c" "store.c" "net.c" "pub.c" INCLUDE_DIRS "."
     REQUIRES esp_driver_i2c esp_driver_spi esp_driver_gpio esp_timer esp_wifi esp_netif esp_event nvs_flash mqtt)
