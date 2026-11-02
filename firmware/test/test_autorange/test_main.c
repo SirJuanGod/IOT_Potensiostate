@@ -1,3 +1,4 @@
+#include <math.h>
 #include <string.h>
 #include <unity.h>
 #include "autorange.h"
@@ -163,6 +164,44 @@ void test_explore_and_final_pass_validation(void) {
     }
 }
 
+void test_final_falls_back_to_request_when_over_budget(void) {
+    ps_profile_t pr; ps_err_t e; profile_default(&pr);
+    pr.e_min_mv = -682; pr.e_max_mv = 489; pr.step_max_mv = 1; pr.max_points = 2014;
+    pr.base_win1 = (ps_win_t){-677, -660}; pr.base_win2 = (ps_win_t){450, 489};
+    ps_params_t req = dpv(-655, 37, 24, 1), fp; ps_gain_knobs_t fk; ps_adj_t adj[8]; bool edge;
+    TEST_ASSERT_TRUE(profile_validate_run(&pr, &req, CUR.gain_idx, 3300, &e));
+    autorange_input_t in = in_of(0.5f, true, 0.5f); in.ep_mv = -300; in.fwhm_mv = 20.0f;
+    TEST_ASSERT_EQUAL(2, decide(&in, &pr, &req, &fp, &fk, adj, &edge));   /* zoom y vuelta a lo pedido */
+    TEST_ASSERT_EQUAL(PS_RULE_STEP_BUDGET, adj[1].rule);
+    TEST_ASSERT_EQUAL_INT32(-677, adj[1].b0); TEST_ASSERT_EQUAL_INT32(465, adj[1].b1);
+    TEST_ASSERT_EQUAL_INT32(-655, adj[1].a0); TEST_ASSERT_EQUAL_INT32(37, adj[1].a1);
+    TEST_ASSERT_EQUAL_INT16(-655, fp.p.dpv.start); TEST_ASSERT_EQUAL_INT16(37, fp.p.dpv.end);
+    TEST_ASSERT_EQUAL_INT16(1, fp.p.dpv.step);
+    TEST_ASSERT_TRUE_MESSAGE(profile_validate_run(&pr, &fp, fk.gain_idx, 3300, &e), e.field);
+}
+void test_explore_respects_max_points(void) {
+    ps_profile_t pr; ps_err_t e; profile_default(&pr);
+    ps_params_t req = swv(-50, 50, 25, 1), out;
+    pr.max_points = 200;   /* ventana completa: el paso sube de 4 a 12 */
+    autorange_explore_params(&req, &pr, &out);
+    TEST_ASSERT_EQUAL_INT16(-575, out.p.swv.start); TEST_ASSERT_EQUAL_INT16(575, out.p.swv.end);
+    TEST_ASSERT_EQUAL_INT16(12, out.p.swv.step);
+    TEST_ASSERT_TRUE_MESSAGE(profile_validate_run(&pr, &out, CUR.gain_idx, 3300, &e), e.field);
+    req = swv(-50, 50, 25, 5); pr.max_points = 100;   /* ni con el paso máximo cabe: vuelve a lo pedido */
+    autorange_explore_params(&req, &pr, &out);
+    TEST_ASSERT_EQUAL_MEMORY(&req.p.swv, &out.p.swv, sizeof req.p.swv);
+}
+void test_zoom_ignores_unusable_fwhm(void) {
+    ps_profile_t pr; profile_default(&pr);
+    ps_params_t req = swv(-400, 500, 50, 2), fp; ps_gain_knobs_t fk; ps_adj_t adj[8]; bool edge;
+    float bad[2] = {NAN, 1e30f};
+    for (int i = 0; i < 2; i++) {
+        autorange_input_t in = in_of(0.5f, true, 0.5f); in.fwhm_mv = bad[i];
+        TEST_ASSERT_EQUAL(0, decide(&in, &pr, &req, &fp, &fk, adj, &edge));
+        TEST_ASSERT_EQUAL_INT16(-550, fp.p.swv.start); TEST_ASSERT_EQUAL_INT16(550, fp.p.swv.end);
+    }
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_explore_swv);
@@ -178,5 +217,8 @@ int main(void) {
     RUN_TEST(test_ext_gain_only_moves_pga);
     RUN_TEST(test_step_budget);
     RUN_TEST(test_explore_and_final_pass_validation);
+    RUN_TEST(test_final_falls_back_to_request_when_over_budget);
+    RUN_TEST(test_explore_respects_max_points);
+    RUN_TEST(test_zoom_ignores_unusable_fwhm);
     return UNITY_END();
 }

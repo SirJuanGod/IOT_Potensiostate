@@ -17,6 +17,20 @@ static int32_t step_cap(const ps_params_t *p, const ps_profile_t *prof) {
     return p->tec == PS_TEC_NPV ? prof->amp_max_mv : prof->step_max_mv;
 }
 
+/* sube el paso (hasta el tope del perfil) al mínimo que cabe en max_points; false si ni con el tope cabe */
+static bool fit_step(ps_params_t *p, const ps_profile_t *prof) {
+    if (tech_num_samples(p) <= prof->max_points) return true;
+    int16_t lo, hi, st;
+    int32_t s = 0, cap = step_cap(p, prof);
+    tech_get_window(p, &lo, &hi, &st);
+    s = abs(st) ? abs(st) : 1;
+    while (s < cap) {
+        tech_set_window(p, lo, hi, (int16_t)++s);
+        if (tech_num_samples(p) <= prof->max_points) return true;
+    }
+    return false;
+}
+
 /* ventana de exploración: la del perfil; en NPV se conserva start y end va al límite en su sentido */
 static void explore_window(const ps_params_t *req, const ps_profile_t *prof, int32_t *lo, int32_t *hi) {
     win_limits(req, prof, lo, hi);
@@ -34,6 +48,7 @@ void autorange_explore_params(const ps_params_t *req, const ps_profile_t *prof, 
     explore_window(req, prof, &lo, &hi);
     s = 4 * abs(st);
     tech_set_window(out, (int16_t)lo, (int16_t)hi, (int16_t)(s > cap ? cap : s));
+    if (!fit_step(out, prof)) *out = *req;   /* un pedido válido es ejecutable */
 }
 
 /* siguiente ganancia interna permitida en el sentido dir; -1 si no hay */
@@ -95,10 +110,14 @@ size_t autorange_decide(const autorange_input_t *in, const ps_profile_t *prof, c
     /* 3. ventana: sin pico se mantiene lo pedido; en el borde, la explorada; si no, zoom al pico */
     int16_t l0, h0, st;
     int32_t lo, hi;
+    bool silent = false;
     tech_get_window(req, &l0, &h0, &st);
     if (in->has_peak && in->at_edge) {
         explore_window(req, prof, &lo, &hi);
         if (peak_at_edge) *peak_at_edge = true;
+    } else if (in->has_peak && !(isfinite(in->fwhm_mv) && in->fwhm_mv <= prof->e_max_mv - prof->e_min_mv)) {
+        explore_window(req, prof, &lo, &hi);   /* FWHM inservible: sin zoom, ventana explorada y sin registro */
+        silent = true;
     } else if (in->has_peak) {
         int32_t lim_lo, lim_hi;
         float half = (float)prof->fwhm_k * in->fwhm_mv;
@@ -113,18 +132,23 @@ size_t autorange_decide(const autorange_input_t *in, const ps_profile_t *prof, c
     }
     if (lo <= hi && (lo != l0 || hi != h0)) {
         tech_set_window(final_p, (int16_t)lo, (int16_t)hi, st);
-        record(adj, max_adj, &n, in->at_edge && in->has_peak ? PS_RULE_EDGE : PS_RULE_ZOOM, l0, h0, lo, hi);
+        if (!silent) record(adj, max_adj, &n, in->at_edge && in->has_peak ? PS_RULE_EDGE : PS_RULE_ZOOM, l0, h0, lo, hi);
     }
 
-    /* 4. presupuesto de puntos: el menor paso que cabe (sin pasar del máximo del perfil) */
+    /* 4. presupuesto de puntos: el menor paso que cabe; si ni con el tope cabe, vuelve a lo pedido (válido, luego ejecutable) */
     if (tech_num_samples(final_p) > prof->max_points) {
-        int32_t s = abs(st) ? abs(st) : 1, old = s, cap = step_cap(req, prof);
-        tech_get_window(final_p, &l0, &h0, &st);
-        while (s < cap) {
-            tech_set_window(final_p, l0, h0, (int16_t)++s);
-            if (tech_num_samples(final_p) <= prof->max_points) break;
+        ps_params_t t = *final_p;
+        int16_t fl, fh, fs;
+        tech_get_window(final_p, &fl, &fh, &fs);
+        if (fit_step(&t, prof)) {
+            int16_t tl, th, ts;
+            tech_get_window(&t, &tl, &th, &ts);
+            *final_p = t;
+            record(adj, max_adj, &n, PS_RULE_STEP_BUDGET, abs(fs), 0, ts, 0);
+        } else {
+            tech_set_window(final_p, l0, h0, st);
+            if (fl != l0 || fh != h0) record(adj, max_adj, &n, PS_RULE_STEP_BUDGET, fl, fh, l0, h0);
         }
-        if (s != old) record(adj, max_adj, &n, PS_RULE_STEP_BUDGET, old, 0, s, 0);
     }
     return n;
 }
