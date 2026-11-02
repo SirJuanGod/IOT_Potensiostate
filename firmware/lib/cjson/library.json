@@ -1,0 +1,7 @@
+{
+  "name": "cjson",
+  "version": "1.7.18",
+  "build": {
+    "flags": "-DCJSON_NESTING_LIMIT=16"
+  }
+}
