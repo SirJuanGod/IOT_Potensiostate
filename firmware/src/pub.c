@@ -27,10 +27,20 @@ static bool send_retry(const char *sub, int len, TickType_t deadline)
     return true;
 }
 
+/* Un bloque que no cabe trunca la pasada: se avisa al cliente por status. Devuelve true (no es timeout). */
+static bool fmt_fail(const char *what)
+{
+    ESP_LOGE(TAG, "%s no cabe en el bloque", what);
+    ps_err_t err;
+    ps_err_set(&err, PS_ERR_HW, "publish_format", 0, what);
+    pub_status("error", &err);
+    return true;
+}
+
 static bool send_pass(const ps_pass_ctx_t *c, TickType_t deadline)
 {
     int len = proto_write_header(s_blk, sizeof s_blk, c->meta);
-    if (len < 0) { ESP_LOGE(TAG, "cabecera no cabe en el bloque"); return true; }   /* error de datos, no de red: no es timeout */
+    if (len < 0) return fmt_fail("cabecera");   /* error de formato, no de red: no es timeout */
     if (!send_retry("data", len, deadline)) return false;
 
     size_t off = 0;
@@ -40,14 +50,14 @@ static bool send_pass(const ps_pass_ctx_t *c, TickType_t deadline)
         size_t used = 0;
         len = proto_write_rows(s_blk, sizeof s_blk, c->meta->id, c->meta->pass, seq++,
                                c->s + off, c->i_na + off, c->n - off, &used, &last);
-        if (len < 0) { ESP_LOGE(TAG, "fila no cabe en el bloque"); return true; }
+        if (len < 0) return fmt_fail("fila");
         if (!send_retry("data", len, deadline)) return false;
         off += used;
     }
 
     if (c->send_result) {
         len = proto_write_result(s_blk, sizeof s_blk, c->meta->id, c->meta->params->tec, c->f, c->adj, c->n_adj, c->run_flags);
-        if (len < 0) { ESP_LOGE(TAG, "resultado no cabe en el bloque"); return true; }
+        if (len < 0) return fmt_fail("resultado");
         if (!send_retry("result", len, deadline)) return false;
     }
     return true;
@@ -82,6 +92,9 @@ void pub_publish_pass(const ps_pass_ctx_t *ctx, TaskHandle_t done_task)
     job_t j = { .ctx = *ctx, .done = done_task };
     if (!s_q || xQueueSend(s_q, &j, 0) != pdTRUE) {      /* cola ocupada (pasada anterior sin terminar) o sin iniciar */
         ESP_LOGE(TAG, "no se pudo encolar la pasada");
+        ps_err_t err;
+        ps_err_set(&err, PS_ERR_BUSY, "publish_queue", 0, "pasada descartada");
+        pub_status("error", &err);
         if (done_task) xTaskNotifyGiveIndexed(done_task, 1);
     }
 }

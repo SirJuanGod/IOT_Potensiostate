@@ -24,10 +24,19 @@ static esp_timer_handle_t s_retry;
 static volatile bool s_connected;
 static uint32_t s_backoff_s = 1;
 
+static void arm_retry(void)
+{
+    /* Backoff 1, 2, 4, ... 30 s con un esp_timer one-shot; sin bucles bloqueantes. */
+    ESP_LOGW(TAG, "WiFi caído, reintento en %u s", (unsigned)s_backoff_s);
+    esp_timer_start_once(s_retry, (uint64_t)s_backoff_s * 1000000ULL);   /* INVALID_STATE si ya está armado: se ignora */
+    s_backoff_s = s_backoff_s * 2 > BACKOFF_MAX_S ? BACKOFF_MAX_S : s_backoff_s * 2;
+}
+
 static void retry_cb(void *arg)
 {
     (void)arg;
-    esp_wifi_connect();
+    /* Si falla de forma síncrona (p. ej. SSID vacío) no llegará STA_DISCONNECTED: se rearma aquí. */
+    if (esp_wifi_connect() != ESP_OK) arm_retry();
 }
 
 static void on_mqtt(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -85,12 +94,9 @@ static void on_wifi_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg; (void)data;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        if (esp_wifi_connect() != ESP_OK) arm_retry();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
-        /* Backoff 1, 2, 4, ... 30 s con un esp_timer one-shot; sin bucles bloqueantes. */
-        ESP_LOGW(TAG, "WiFi caído, reintento en %u s", (unsigned)s_backoff_s);
-        esp_timer_start_once(s_retry, (uint64_t)s_backoff_s * 1000000ULL);   /* INVALID_STATE si ya está armado: se ignora */
-        s_backoff_s = s_backoff_s * 2 > BACKOFF_MAX_S ? BACKOFF_MAX_S : s_backoff_s * 2;
+        arm_retry();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         s_backoff_s = 1;
         ESP_LOGI(TAG, "WiFi con IP");
