@@ -65,7 +65,8 @@ estima la **concentración** de un compuesto.
   - Ganancias del TIA: 2,75k/3,5k/7k/14k/35k/120k/350k, o resistencia externa.
   - RLoad de 10/33/50/100 Ω.
 - **Ventana de potencial alcanzable:** |E| ≤ 0,24 × 3,3 V ≈ **792 mV**. Valores
-  0 < |E| < 15 mV no se pueden generar (1 % × 1,5 V); E = 0 sí, con bias 0 %.
+  0 < |E| < 15 mV no se pueden generar (1 % × 1,5 V); E = 0 sí, con bias 0 %. Los
+  barridos sí pueden cruzar esa zona: ver §7.
 - **ADS1115:** su dirección debe ser **0x49** (ADDR a VDD) para no chocar con el
   LMP91000. 8–860 SPS. PGA de ±0,256 a ±6,144 V.
 
@@ -162,6 +163,11 @@ PC para tests.
   y publica los bloques desde el buffer.
   - **Nunca se publica durante una pasada**, para que la transmisión WiFi no meta
     ruido. Se publica entre la exploración y la definitiva, y al final.
+  - *Decisión del diseñador:* la conexión sigue activa durante la pasada, con el
+    keepalive de MQTT y la recepción de `stop`. Solo se retiene la publicación.
+    Apagar la radio rompería el `stop` remoto. La prueba en hardware (§13) mide el
+    ruido con WiFi conectado; si se ve en los datos, se pasa a modem-sleep durante la
+    pasada.
 - `stop` llega por MQTT. `meas_task` lo atiende en el siguiente evento, pone la celda
   en estado seguro (bias 0 %, VREF válido) y publica lo medido marcado como
   `aborted`.
@@ -186,7 +192,10 @@ E_celda = signo × VREF × bias%, con VREF = código × DAC_VREF / 65536, en [15
 
 Para un E pedido:
 - **E = 0:** bias 0 %, VREF en un valor válido.
-- **0 < |E| < 15 mV:** inválido; lo rechaza la validación.
+- **0 < |E| < 15 mV** *(decisión del diseñador)*: se aplica el valor alcanzable más
+  cercano: 0 si |E| < 7,5 mV, ±15 mV si no. El valor real queda en `E_apl` y el punto
+  se marca con el flag `snapped`. No se rechaza la medición: casi todo barrido cruza
+  0 V. KickStat hace lo mismo.
 - **Resto:** para cada índice de bias 1..13 se calcula VREF = |E| / bias%. Se descartan
   los que caen fuera de [1500, 3300] mV. Se redondea el código DAC y se elige la
   combinación con **menor error** |E_aplicado − E|.
@@ -226,7 +235,17 @@ Un perfil con nombre, guardado en NVS (se permiten varios y uno está activo):
   `rate_min/max`, ganancias del TIA permitidas, RLoad, `R_ext` si se usa ganancia
   externa, `settle_us`, `max_points`.
 - **Análisis:** `redox` (+1 oxidación / −1 reducción), ventana de búsqueda de pico,
-  dos ventanas de línea base.
+  dos ventanas de línea base. Las ventanas van en mV absolutos, como en
+  MiniStatAnalyst.
+
+**Características por técnica** *(decisión del diseñador)*. El código es el mismo en
+la etapa 1 y en la etapa 2. Como los crudos se envían, la PC puede recalcular otras
+características si hacen falta.
+- **SWV, DPV y NPV:** sobre la curva de diferencia.
+- **CV:** sobre el último ciclo. Si `redox` = +1 se usa la rama anódica (hacia
+  potenciales positivos) y si es −1 la catódica. Un pico por medición.
+- **CA:** no hay pico. Las características son la corriente media del último 20 % de
+  cada segmento y la carga integrada de cada segmento.
 - **Defaults:** técnica y parámetros por defecto, para el modo portátil futuro.
 
 Validación: todo comando `run` se valida contra el perfil activo **y** contra las
@@ -255,6 +274,13 @@ Si `auto=true`:
 Si la exploración no encuentra pico, la definitiva se hace con los parámetros pedidos
 y se marca `no_peak`. Hay como máximo **una** definitiva; no hay bucles.
 
+*Decisiones del diseñador:*
+- La ventana final se **amplía siempre** para incluir las ventanas de línea base y de
+  búsqueda de pico del perfil. Así las características se calculan igual en todas las
+  muestras.
+- En **CA** el ajuste automático solo aplica las reglas de ganancia (saturación y
+  señal pequeña), porque no hay ventana de potencial.
+
 ## 11. Protocolo MQTT
 
 Topics `potenciostato/<device_id>/{cmd,status,data,result}`, QoS 1.
@@ -266,7 +292,12 @@ Topics `potenciostato/<device_id>/{cmd,status,data,result}`, QoS 1.
  "gain":"auto"}
 {"cmd":"stop"}
 {"cmd":"set_profile","profile":{...}}   {"cmd":"get_profile"}   {"cmd":"select_profile","name":"..."}
+{"cmd":"set_calibration","cal":{...}}   {"cmd":"get_calibration"}
 ```
+
+*Decisión del diseñador:* la calibración la calcula la PC (por ejemplo, con mediciones
+sobre la celda de resistencia) y la envía con `set_calibration`. El firmware solo la
+guarda en NVS y la aplica; no tiene un modo de calibración propio.
 
 **Datos (`data`)**, por pasada:
 - Un mensaje de cabecera con `id`, `pass` (`explore`/`final`), técnica, parámetros
