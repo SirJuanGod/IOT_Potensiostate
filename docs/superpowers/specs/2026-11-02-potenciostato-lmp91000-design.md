@@ -102,7 +102,7 @@ curva. KickStat también usa ganancia fija por medición.
 ESP32-C3 ──SPI──► AD5662 ──Vout──► LMP91000.VREF (1,5–3,3 V)
     │                                   │ WE/RE/CE ── celda
     ├──I2C 0x48──► LMP91000 (config)    │
-    ├──I2C 0x49──► ADS1115 ◄── AIN0 = LMP.VOUT, AIN1 = LMP.C1 (diferencial)
+    ├──I2C 0x49──► ADS1115 ◄── AIN0 = LMP.VOUT, AIN1 = buffer(LMP.C1) (diferencial)
     ├──GPIO ◄──── ADS1115 ALERT/RDY (interrupción de conversión lista)
     └──GPIO ────► LMP91000 MENB (activo bajo; puede ir fijo a GND)
 ```
@@ -113,6 +113,16 @@ ESP32-C3 ──SPI──► AD5662 ──Vout──► LMP91000.VREF (1,5–3,3 
     referencia de voltaje dedicada (p. ej. 3,0 V o 3,3 V de precisión) en lugar del
     riel de 3,3 V.
   - Su valor se configura (`DAC_VREF_MV`) y se calibra.
+- **Buffer en C1** (decidido con el usuario; la placa aún no existe). C1 es el nodo
+  inversor del TIA. Conectar el ADS1115 directo lo cargaría con unos pocos MΩ y
+  metería una corriente de error que cambia con VREF. Se agrega un seguidor de voltaje
+  entre C1 y AIN1.
+  - Requisitos del op-amp: CMOS, entrada y salida rail-to-rail a 3,3 V, Ib < 100 pA
+    (esa corriente entra al nodo del TIA) y Vos bajo, porque entra directo en
+    VOUT−C1. Un Vos constante se corrige con la calibración de offset.
+  - Candidato a verificar en la fase de esquemático: un op-amp zero-drift tipo OPA333.
+  - Con el buffer, la calibración por equipo (§12) vuelve a ser un offset y una
+    ganancia por ganancia del TIA. Ya no se necesita por combinación con el PGA.
 - **Pines propuestos** (decisión del diseñador, a confirmar con el PCB): SPI
   MOSI=GPIO5, SCLK=GPIO4, CS=GPIO6; I2C SDA=GPIO8, SCL=GPIO9 (pull-ups externos de
   4,7 kΩ, que además dejan los pines de arranque en el nivel correcto); ADS1115
