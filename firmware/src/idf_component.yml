@@ -1,2 +1,0 @@
-dependencies:
-  espressif/mqtt: "^1.0.0"   # desde ESP-IDF 6 MQTT ya no viene en el core

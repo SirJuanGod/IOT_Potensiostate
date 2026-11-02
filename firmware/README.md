@@ -9,5 +9,6 @@ Variante usada: **`lib/` plano de PlatformIO** (sin `CMakeLists.txt` por lib ni 
 
 ## Notas
 
-- `platform = espressif32` resuelve hoy a ESP-IDF 6.1, donde MQTT ya no está en el core: se declara en `src/idf_component.yml` (`espressif/mqtt`) y se requiere como `espressif__mqtt`.
+- `platform = espressif32@6.13.0` fija ESP-IDF 5.5.3 (la versión sin fijar resolvía a IDF 6.1, donde `mqtt` ya no es componente del core).
+
 - `sdkconfig.esp32-c3-devkitm-1` se genera desde `sdkconfig.defaults` y no se versiona.
