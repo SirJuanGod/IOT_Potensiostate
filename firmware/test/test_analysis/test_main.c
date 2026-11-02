@@ -44,6 +44,22 @@ void test_negative_peak(void) {
     TEST_ASSERT_TRUE(pk.area_na_mv < 0);
 }
 
+void test_descending_negative_peak(void) {
+    size_t n = 0;
+    for (int x = 500; x >= -500; x -= 5, n++) {
+        float d = (x + 100) / 40.0f;
+        X[n] = (int16_t)x;
+        Y[n] = 0.01f * x + 2.0f - 100.0f * expf(-d * d);
+    }
+    float m, b; ps_peak_feat_t pk;
+    TEST_ASSERT_TRUE(analysis_baseline(X, Y, n, (ps_win_t){-500, -300}, (ps_win_t){300, 500}, &m, &b));
+    TEST_ASSERT_TRUE(analysis_peak(X, Y, n, m, b, (ps_win_t){-300, 200}, -1, 10, &pk));
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, -100.0f, pk.ip_na);
+    TEST_ASSERT_EQUAL_INT16(-100, pk.ep_mv);
+    TEST_ASSERT_FLOAT_WITHIN(5.0f, 66.6f, pk.fwhm_mv);
+    TEST_ASSERT_FALSE(pk.at_edge);
+}
+
 void test_baseline_too_few_points(void) {
     size_t n = gauss(-100, 100, 1);
     float m, b;
@@ -144,6 +160,7 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_gaussian_peak);
     RUN_TEST(test_negative_peak);
+    RUN_TEST(test_descending_negative_peak);
     RUN_TEST(test_baseline_too_few_points);
     RUN_TEST(test_peak_at_edge);
     RUN_TEST(test_peak_too_few_points_or_not_positive);
