@@ -96,6 +96,19 @@ void test_profile_check_rejects_zero_min(void) {
     TEST_ASSERT_FALSE(profile_check(&p, 3300, &e));
     TEST_ASSERT_EQUAL_STRING("rate_min_mv_s", e.field);
 }
+void test_validate_rejects_unknown_tec(void) {
+    ps_profile_t p; ps_err_t e; profile_default(&p);
+    ps_params_t r = swv(-400, 500, 50, 1, 25.0f); r.tec = (ps_tec_t)9;
+    TEST_ASSERT_FALSE(profile_validate_run(&p, &r, 3, 3300, &e));
+    expect_field(&e, "tec", 0);
+}
+void test_profile_check_rejects_ext_default_without_r(void) {
+    ps_profile_t p; ps_err_t e; profile_default(&p); p.gain_mask = 0xFF; p.default_gain_idx = PS_GAIN_EXT;
+    TEST_ASSERT_FALSE(profile_check(&p, 3300, &e));
+    TEST_ASSERT_EQUAL_STRING("default_gain_idx", e.field);
+    p.r_ext_ohm = 10000;
+    TEST_ASSERT_TRUE(profile_check(&p, 3300, &e));
+}
 
 int main(void) {
     UNITY_BEGIN();
@@ -105,6 +118,7 @@ int main(void) {
     RUN_TEST(test_validate_rejects_out_of_profile); RUN_TEST(test_validate_rejects_cv_offgrid);
     RUN_TEST(test_validate_rejects_width_gt_period); RUN_TEST(test_validate_rejects_t1_too_long);
     RUN_TEST(test_profile_check_rejects_beyond_physical); RUN_TEST(test_profile_check_rejects_window_outside);
-    RUN_TEST(test_profile_check_rejects_zero_min);
+    RUN_TEST(test_profile_check_rejects_zero_min); RUN_TEST(test_validate_rejects_unknown_tec);
+    RUN_TEST(test_profile_check_rejects_ext_default_without_r);
     return UNITY_END();
 }

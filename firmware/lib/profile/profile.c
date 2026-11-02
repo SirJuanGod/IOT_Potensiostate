@@ -52,6 +52,8 @@ bool profile_check(const ps_profile_t *p, uint32_t dac_vref_mv, ps_err_t *err) {
     if (p->redox != 1 && p->redox != -1) return fail(err, "redox", 1, "redox debe ser +1 o -1");
     if (p->default_gain_idx > PS_GAIN_EXT || !(p->gain_mask >> p->default_gain_idx & 1))
         return fail(err, "default_gain_idx", p->gain_mask, "ganancia por defecto no permitida");
+    if (p->default_gain_idx == PS_GAIN_EXT && p->r_ext_ohm == 0)
+        return fail(err, "default_gain_idx", 0, "ganancia externa sin r_ext_ohm");
     return true;
 }
 
@@ -129,6 +131,7 @@ bool profile_validate_run(const ps_profile_t *p, const ps_params_t *run, uint8_t
                           uint32_t dac_vref_mv, ps_err_t *err) {
     const int32_t emax_mv = potential_e_max_uv(dac_vref_mv) / 1000;
     int16_t lo, hi;
+    if ((unsigned)run->tec > PS_TEC_CA) return fail(err, "tec", 0, "tecnica desconocida");
     if (!times_ok(run, err)) return false;
 
     /* step / amp / freq / rate */
