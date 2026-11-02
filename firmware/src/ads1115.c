@@ -29,6 +29,7 @@ static esp_err_t wr16(uint8_t reg, uint16_t v)
 
 esp_err_t ads_init(i2c_master_bus_handle_t bus, TaskHandle_t notify, uint32_t notify_bit)
 {
+    if (notify == NULL || notify_bit == 0) return ESP_ERR_INVALID_ARG;
     s_task = notify;
     s_bit = notify_bit;
 
@@ -65,6 +66,7 @@ esp_err_t ads_start(uint8_t pga_idx, uint8_t dr_idx)
 
 esp_err_t ads_read(int16_t *raw)
 {
+    if (raw == NULL) return ESP_ERR_INVALID_ARG;
     uint8_t reg = REG_CONV, b[2];
     esp_err_t err = i2c_master_transmit_receive(s_dev, &reg, 1, b, 2, PS_I2C_TMO_MS);
     if (err == ESP_OK) *raw = (int16_t)(((uint16_t)b[0] << 8) | b[1]);

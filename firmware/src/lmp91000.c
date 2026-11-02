@@ -41,13 +41,15 @@ esp_err_t lmp_init(i2c_master_bus_handle_t bus)
     s_refcn = -1;
 
     /* Espera de arranque (fuera de pasada): STATUS bit0 = 1 cuando el dispositivo está listo */
+    esp_err_t last = ESP_OK;
     for (int i = 0; i < 50; i++) {
         uint8_t reg = REG_STATUS, st = 0;
-        if (i2c_master_transmit_receive(s_dev, &reg, 1, &st, 1, PS_I2C_TMO_MS) == ESP_OK && (st & 0x01))
+        last = i2c_master_transmit_receive(s_dev, &reg, 1, &st, 1, PS_I2C_TMO_MS);
+        if (last == ESP_OK && (st & 0x01))
             return ESP_OK;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    return ESP_ERR_TIMEOUT;
+    return last != ESP_OK ? last : ESP_ERR_TIMEOUT;   /* error I2C real si lo hubo */
 }
 
 esp_err_t lmp_configure(uint8_t gain_idx, uint8_t rload_idx)
@@ -71,5 +73,6 @@ esp_err_t lmp_set_bias(int8_t sign, uint8_t bias_idx)
 
 esp_err_t lmp_lock(void)
 {
+    s_refcn = -1;   /* con el registro bloqueado el valor cacheado ya no es fiable */
     return wr(REG_LOCK, 0x01);
 }
