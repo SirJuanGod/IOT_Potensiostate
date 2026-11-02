@@ -18,7 +18,7 @@ menu "Potenciostato"
 
     config PS_DAC_VREF_MV
         int "Referencia del AD5662 (mV)"
-        range 1500 5000
+        range 3000 3300
         default 3300
 
 endmenu
