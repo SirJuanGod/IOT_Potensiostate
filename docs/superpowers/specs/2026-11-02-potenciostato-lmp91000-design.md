@@ -285,9 +285,17 @@ Si la exploración no encuentra pico, la definitiva se hace con los parámetros 
 y se marca `no_peak`. Hay como máximo **una** definitiva; no hay bucles.
 
 *Decisiones del diseñador:*
-- La ventana final se **amplía siempre** para incluir las ventanas de línea base y de
-  búsqueda de pico del perfil. Así las características se calculan igual en todas las
-  muestras.
+- La ventana final se **amplía siempre** para incluir las ventanas de línea base del
+  perfil. Así las características se calculan igual en todas las muestras. Si esas
+  ventanas están en los extremos, la ventana no se estrecha y la mejora viene solo del
+  paso más fino.
+- **Pico en el borde:** como la exploración ya cubre toda la ventana permitida, no hay
+  hacia dónde recentrar. La definitiva usa la ventana explorada sin acercamiento y se
+  marca `peak_at_edge`.
+- Si la definitiva superaría `max_points`, se engrosa el paso hasta que quepa (regla
+  `step_budget`).
+- En **CV** el ajuste automático solo aplica las reglas de ganancia, como en CA: mover
+  los vértices cambia el experimento.
 - En **CA** el ajuste automático solo aplica las reglas de ganancia (saturación y
   señal pequeña), porque no hay ventana de potencial.
 
@@ -315,15 +323,17 @@ guarda en NVS y la aplica; no tiene un modo de calibración propio.
   `t0`.
 - Bloques de ≤ ~4 KB:
   ```
-  {"id","pass","seq","last","rows":[[t_us,tag,E_set,E_apl,sign,bias_idx,dac_code,adc_raw,pga,i_nA], ...]}
+  {"id","pass","seq","last","rows":[[t_us,tag,cycle,branch,x_mV,E_set_mV,E_apl_uV,sign,bias_idx,dac_code,adc_raw,pga,dr,i_nA,flags], ...]}
   ```
+  La cabecera incluye `cols` con esos nombres, para que cada mensaje se describa solo.
 - Los crudos (`dac_code`, `adc_raw`, `bias_idx`, `pga`) van siempre. `i_nA` es
   derivado.
 
 **Resultado (`result`)**
 ```json
-{"id","features":{"baseline_m","baseline_b","ip_nA","Ep_mV","area_nC"},"adjustments":[...],"flags":["no_peak"|"aborted"|...]}
+{"id","features":{"baseline_m","baseline_b","ip_nA","Ep_mV","area_nA_mV","fwhm_mV"},"adjustments":[...],"flags":["no_peak"|"peak_at_edge"|"aborted"|...]}
 ```
+En CA, `features` es `{"iss_nA":[3],"q_nC":[3]}`.
 
 **Estado (`status`)**: `idle`, `running`, `error` con motivo, más un último deseo (LWT)
 `offline`.
