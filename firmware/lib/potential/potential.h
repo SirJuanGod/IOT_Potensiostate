@@ -9,3 +9,6 @@ typedef struct { int8_t sign; uint8_t bias_idx; uint16_t dac_code; int32_t e_apl
 uint32_t potential_vref_max_uv(uint32_t dac_vref_mv);   /* min(3300000, dac_vref·1000·65535/65536) */
 int32_t  potential_e_max_uv(uint32_t dac_vref_mv);      /* 24 % de vref_max */
 bool     potential_solve(int32_t e_mv, uint32_t dac_vref_mv, ps_bias_t *out); /* false si |E| > e_max */
+/* Orden de escritura entre dos puntos: true = DAC antes que REFCN. Entre las dos escrituras la celda ve
+ * p_viejo·V_nuevo (DAC primero) o p_nuevo·V_viejo (bias primero); se elige el de menor módulo. */
+bool     potential_dac_first(const ps_bias_t *prev, const ps_bias_t *next);

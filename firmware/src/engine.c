@@ -109,6 +109,8 @@ static pass_res_t run_pass(const ps_params_t *p, uint8_t gain, uint8_t pga, int6
     const int64_t t0 = esp_timer_get_time();
     *t0_out = t0;
     int64_t t_end = t0;
+    ps_bias_t prev;
+    potential_solve(0, VREF_MV, &prev);   /* lmp_configure deja bias 0 % y el DAC sigue en el estado seguro */
     const uint32_t n_steps = tech_num_steps(p);
     for (uint32_t k = 0; k < n_steps; k++) {
         ps_step_t st;
@@ -117,8 +119,12 @@ static pass_res_t run_pass(const ps_params_t *p, uint8_t gain, uint8_t pga, int6
         /* nada queda en vuelo del paso anterior: sus dos timers ya dispararon y su RDY se consumió */
         ulTaskNotifyValueClearIndexed(NULL, 0, EVT_STEP_BITS);
         if (!potential_solve(st.e_mv, VREF_MV, &b)) return fail(PS_ERR_RANGE, "E", st.e_mv, "potencial fuera de rango");
+        /* el orden deja entre las dos escrituras el menor de p_viejo·V_nuevo y p_nuevo·V_viejo */
+        const bool dac_first = potential_dac_first(&prev, &b);
+        if (dac_first && (e = ad5662_write(b.dac_code)) != ESP_OK) return fail_hw("dac", e);
         if ((e = lmp_set_bias(b.sign, b.bias_idx)) != ESP_OK) return fail_hw("lmp", e);
-        if ((e = ad5662_write(b.dac_code)) != ESP_OK) return fail_hw("dac", e);
+        if (!dac_first && (e = ad5662_write(b.dac_code)) != ESP_OK) return fail_hw("dac", e);
+        prev = b;
 
         t_end += st.dur_us;   /* tiempo absoluto: los retrasos de un paso no se acumulan */
         ev = 0;

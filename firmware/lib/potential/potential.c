@@ -41,22 +41,32 @@ bool potential_solve(int32_t e_mv, uint32_t dac_vref_mv, ps_bias_t *out) {
     }
     if (a > (uint64_t)potential_e_max_uv(dac_vref_mv)) return false;
 
-    bool found = false; uint64_t best_err = 0; uint32_t best_code = 0; uint8_t best_idx = 0; uint64_t best_e = 0;
+    /* Candidatos por bias; se elige el de mayor VREF (menor bias%) con error a <= 10 uV del mejor:
+     * el bias cambia pocas veces a lo largo de un barrido y el TIA trabaja con más señal. */
+    uint32_t code[PS_NUM_BIAS]; uint64_t err[PS_NUM_BIAS], best_err = UINT64_MAX;
     for (uint8_t idx = 1; idx < PS_NUM_BIAS; idx++) {
         uint32_t pct = PS_BIAS_PCT[idx];
         uint64_t vref = (a * 100u + pct / 2u) / pct;
+        err[idx] = UINT64_MAX;
         if (vref < vmin || vref > vmax) continue;
-        uint32_t code = code_of(vref, dac_uv);
-        while (code < 65535u && vref_of(code, dac_uv) < vmin) code++;   /* el redondeo puede salirse del rango */
-        while (code > 0 && vref_of(code, dac_uv) > vmax) code--;
-        uint64_t e_apl = vref_of(code, dac_uv) * pct / 100u;
-        uint64_t err = e_apl > a ? e_apl - a : a - e_apl;
-        if (!found || err < best_err || (err == best_err && code > best_code)) {
-            found = true; best_err = err; best_code = code; best_idx = idx; best_e = e_apl;
-        }
+        uint32_t c = code_of(vref, dac_uv);
+        while (c < 65535u && vref_of(c, dac_uv) < vmin) c++;   /* el redondeo puede salirse del rango */
+        while (c > 0 && vref_of(c, dac_uv) > vmax) c--;
+        uint64_t e_apl = vref_of(c, dac_uv) * pct / 100u;
+        code[idx] = c;
+        err[idx] = e_apl > a ? e_apl - a : a - e_apl;
+        if (err[idx] < best_err) best_err = err[idx];
     }
-    if (!found) return false;
-    out->bias_idx = best_idx; out->dac_code = (uint16_t)best_code;
-    out->e_apl_uv = (int32_t)(e_uv < 0 ? -(int64_t)best_e : (int64_t)best_e);
+    if (best_err == UINT64_MAX) return false;
+    uint8_t idx = 1;
+    while (err[idx] > best_err + 10u) idx++;   /* termina: el mejor cumple */
+    uint64_t e_apl = vref_of(code[idx], dac_uv) * PS_BIAS_PCT[idx] / 100u;
+    out->bias_idx = idx; out->dac_code = (uint16_t)code[idx];
+    out->e_apl_uv = (int32_t)(e_uv < 0 ? -(int64_t)e_apl : (int64_t)e_apl);
     return true;
+}
+
+bool potential_dac_first(const ps_bias_t *prev, const ps_bias_t *next) {
+    /* el código DAC es proporcional a VREF: basta comparar pct·código */
+    return (uint32_t)PS_BIAS_PCT[prev->bias_idx] * next->dac_code < (uint32_t)PS_BIAS_PCT[next->bias_idx] * prev->dac_code;
 }
