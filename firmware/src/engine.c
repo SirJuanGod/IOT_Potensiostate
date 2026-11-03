@@ -188,12 +188,15 @@ static pass_res_t run_pass(const ps_params_t *p, uint8_t gain, uint8_t pga, int6
     return PASS_OK;
 }
 
-/* Corrientes con la calibración del índice de ganancia y características de la pasada. */
+/* Corrientes con la calibración del índice de ganancia, flag de recorte del TIA y características de la pasada. */
 static void analyze(ps_tec_t tec, uint8_t gain)
 {
     const uint32_t r_tia = ps_r_tia_ohm(gain, s_prof.r_ext_ohm);
-    for (size_t k = 0; k < s_n; k++)
-        s_i_na[k] = ps_current_na(s_samples[k].adc_raw, s_samples[k].pga, r_tia, s_cal.offset_na[gain], s_cal.gain[gain]);
+    for (size_t k = 0; k < s_n; k++) {
+        ps_sample_t *m = &s_samples[k];
+        s_i_na[k] = ps_current_na(m->adc_raw, m->pga, r_tia, s_cal.offset_na[gain], s_cal.gain[gain]);
+        if (ps_tia_frac(m->adc_raw, m->pga, m->dac_code, VREF_MV) > 1.0f) m->flags |= PS_FLAG_TIA_CLIP;
+    }
     analysis_features(s_samples, s_i_na, s_n, tec, &s_prof, s_x, s_y, &s_feat);
 }
 
@@ -271,8 +274,11 @@ static bool run(void)
             .peak_fs_frac = ps_na_to_fs_frac(s_feat.pk.ip_na, k.pga_idx, ps_r_tia_ohm(k.gain_idx, s_prof.r_ext_ohm)),
         };
         for (size_t i = 0; i < s_n; i++) {
-            uint16_t a = (uint16_t)abs(s_samples[i].adc_raw);
+            const ps_sample_t *m = &s_samples[i];
+            uint16_t a = (uint16_t)abs(m->adc_raw);
+            float t = ps_tia_frac(m->adc_raw, m->pga, m->dac_code, VREF_MV);
             if (a > in.max_abs_raw) in.max_abs_raw = a;
+            if (t > in.tia_frac) in.tia_frac = t;
         }
         publish(PS_PASS_EXPLORE, &s_explore, k, t0, 0, 0, false);
 

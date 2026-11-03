@@ -59,3 +59,11 @@ float ps_na_to_fs_frac(float i_na, uint8_t pga_idx, uint32_t r_tia_ohm)
     float v_mv = fabsf(i_na) * (float)r_tia_ohm / 1e6f;   /* nA·Ω = 1e-9 V → /1e6 = mV */
     return v_mv / (float)PS_PGA_FSR_MV[pga_idx > 5 ? 5 : pga_idx];
 }
+
+float ps_tia_frac(int16_t adc_raw, uint8_t pga_idx, uint16_t dac_code, uint32_t dac_vref_mv)
+{
+    float half = (float)dac_code * (float)dac_vref_mv / 65536.0f / 2.0f;
+    float head = (half < 3300.0f - half ? half : 3300.0f - half) - 50.0f;
+    float v_mv = fabsf((float)adc_raw) * (float)PS_PGA_FSR_MV[pga_idx > 5 ? 5 : pga_idx] / 32768.0f;
+    return v_mv / (head > 1.0f ? head : 1.0f);   /* VREF fuera de rango (código 0): sin división por <= 0 */
+}

@@ -22,6 +22,7 @@ typedef enum { PS_TEC_CV, PS_TEC_SWV, PS_TEC_DPV, PS_TEC_NPV, PS_TEC_CA } ps_tec
 typedef enum { PS_TAG_STEP, PS_TAG_FWD, PS_TAG_REV, PS_TAG_BASE, PS_TAG_PULSE, PS_TAG_QUIET } ps_tag_t;
 enum { PS_BR_UP = 0, PS_BR_DOWN = 1 };            /* CA usa branch = segmento 0..2 */
 #define PS_FLAG_SNAPPED 0x01
+#define PS_FLAG_TIA_CLIP 0x02                     /* |VOUT − C1| fuera de la holgura del TIA */
 
 typedef struct { int16_t lo, hi; } ps_win_t;
 typedef struct { uint8_t cycles; int16_t start, end, vertex1, vertex2, step; uint16_t rate_mv_s; } ps_cv_t;
@@ -46,3 +47,6 @@ uint32_t ps_min_sample_step_us(uint32_t settle_us);         /* settle + PS_WRITE
 uint32_t ps_r_tia_ohm(uint8_t gain_idx, uint32_t r_ext_ohm);
 float    ps_current_na(int16_t adc_raw, uint8_t pga_idx, uint32_t r_tia_ohm, float offset_na, float gain);
 float    ps_na_to_fs_frac(float i_na, uint8_t pga_idx, uint32_t r_tia_ohm); /* |i|·R / FSR */
+/* |VOUT − C1| / holgura del TIA. Con INT_Z 50 % la salida va de VREF/2 hacia 0 o hacia 3,3 V:
+ * holgura = min(VREF/2, 3300 − VREF/2) − 50 mV, VREF = dac_code·dac_vref/65536. > 1 = recorte. */
+float    ps_tia_frac(int16_t adc_raw, uint8_t pga_idx, uint16_t dac_code, uint32_t dac_vref_mv);

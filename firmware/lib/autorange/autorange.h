@@ -5,7 +5,8 @@
 #include "ps_common.h"
 #include "profile.h"
 
-typedef struct { uint16_t max_abs_raw; bool has_peak; float peak_fs_frac; int16_t ep_mv; float fwhm_mv; bool at_edge; } autorange_input_t;
+/* max_abs_raw: máximo |adc_raw|; tia_frac: máximo de ps_tia_frac sobre las muestras (uso de la holgura del TIA) */
+typedef struct { uint16_t max_abs_raw; bool has_peak; float peak_fs_frac; int16_t ep_mv; float fwhm_mv; bool at_edge; float tia_frac; } autorange_input_t;
 typedef struct { uint8_t gain_idx, pga_idx; } ps_gain_knobs_t;
 typedef enum { PS_RULE_SATURATION, PS_RULE_SMALL, PS_RULE_EDGE, PS_RULE_ZOOM, PS_RULE_STEP_BUDGET } ps_rule_t;
 typedef struct { ps_rule_t rule; int32_t b0, b1, a0, a1; } ps_adj_t;   /* antes/después; ganancia: b0=gain, b1=pga; ventana: lo, hi; presupuesto: b0=paso */

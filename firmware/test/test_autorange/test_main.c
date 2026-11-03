@@ -21,7 +21,7 @@ static ps_params_t npv(int s, int e, int amp) {
 /* fracción f del fondo de escala del ADC */
 static uint16_t raw(float f) { return (uint16_t)(f * 32767); }
 static autorange_input_t in_of(float max_frac, bool peak, float peak_frac) {
-    autorange_input_t i = {raw(max_frac), peak, peak_frac, 100, 66.0f, false}; return i;
+    autorange_input_t i = {raw(max_frac), peak, peak_frac, 100, 66.0f, false, 0}; return i;
 }
 static size_t decide(const autorange_input_t *in, const ps_profile_t *pr, const ps_params_t *req,
                      ps_params_t *fp, ps_gain_knobs_t *fk, ps_adj_t *adj, bool *edge) {
@@ -49,7 +49,7 @@ void test_explore_dpv_down(void) {   /* barrido hacia abajo: el pulso resta amp,
 void test_saturation_pga(void) {
     ps_profile_t pr; profile_default(&pr);
     ps_params_t req = swv(-400, 500, 50, 2), fp; ps_gain_knobs_t fk; ps_adj_t adj[8]; bool edge;
-    autorange_input_t in = {32000, false, 0, 0, 0, false};
+    autorange_input_t in = {32000, false, 0, 0, 0, false, 0};
     TEST_ASSERT_EQUAL(1, decide(&in, &pr, &req, &fp, &fk, adj, &edge));
     TEST_ASSERT_EQUAL_UINT8(3, fk.gain_idx);
     TEST_ASSERT_EQUAL_UINT8(1, fk.pga_idx);
@@ -60,10 +60,27 @@ void test_saturation_pga(void) {
 void test_saturation_gain(void) {
     ps_profile_t pr; profile_default(&pr);
     ps_params_t req = swv(-400, 500, 50, 2), fp; ps_gain_knobs_t fk, cur = {3, 0}; ps_adj_t adj[8]; bool edge;
-    autorange_input_t in = {32000, false, 0, 0, 0, false};
+    autorange_input_t in = {32000, false, 0, 0, 0, false, 0};
     TEST_ASSERT_EQUAL(1, autorange_decide(&in, &pr, &req, &cur, &fp, &fk, adj, 8, &edge));
     TEST_ASSERT_EQUAL_UINT8(2, fk.gain_idx);
     TEST_ASSERT_EQUAL_UINT8(0, fk.pga_idx);
+}
+void test_saturation_tia_lowers_gain(void) {   /* el TIA recorta: la PGA no ayuda, baja la ganancia */
+    ps_profile_t pr; profile_default(&pr);
+    ps_params_t req = swv(-400, 500, 50, 2), fp; ps_gain_knobs_t fk; ps_adj_t adj[8]; bool edge;
+    autorange_input_t in = {1000, false, 0, 0, 0, false, 0.97f};
+    TEST_ASSERT_EQUAL(1, decide(&in, &pr, &req, &fp, &fk, adj, &edge));
+    TEST_ASSERT_EQUAL(PS_RULE_SATURATION, adj[0].rule);
+    TEST_ASSERT_EQUAL_UINT8(2, fk.gain_idx);
+    TEST_ASSERT_EQUAL_UINT8(2, fk.pga_idx);
+}
+void test_small_signal_limited_by_tia(void) {   /* la PGA sube; la ganancia no, porque el TIA pasaría del objetivo */
+    ps_profile_t pr; profile_default(&pr);
+    ps_params_t req = swv(-400, 500, 50, 2), fp; ps_gain_knobs_t fk; ps_adj_t adj[8]; bool edge;
+    autorange_input_t in = in_of(0.01f, true, 0.01f); in.tia_frac = 0.5f;   /* ×2,5 → 1,25 */
+    decide(&in, &pr, &req, &fp, &fk, adj, &edge);
+    TEST_ASSERT_EQUAL_UINT8(5, fk.pga_idx);
+    TEST_ASSERT_EQUAL_UINT8(3, fk.gain_idx);
 }
 void test_small_signal_pga_then_stop(void) {
     ps_profile_t pr; profile_default(&pr);
@@ -118,7 +135,7 @@ void test_edge_keeps_window(void) {
 void test_no_peak_keeps_requested(void) {
     ps_profile_t pr; profile_default(&pr);
     ps_params_t req = swv(-400, 500, 50, 2), fp; ps_gain_knobs_t fk; ps_adj_t adj[8]; bool edge;
-    autorange_input_t in = {32000, false, 0, 0, 0, false};
+    autorange_input_t in = {32000, false, 0, 0, 0, false, 0};
     TEST_ASSERT_EQUAL(1, decide(&in, &pr, &req, &fp, &fk, adj, &edge));
     TEST_ASSERT_EQUAL_INT16(-400, fp.p.swv.start);
     TEST_ASSERT_EQUAL_INT16(500, fp.p.swv.end);
@@ -140,7 +157,7 @@ void test_ca_gain_only(void) {
 void test_ext_gain_only_moves_pga(void) {
     ps_profile_t pr; profile_default(&pr); pr.gain_mask = 0xFF; pr.r_ext_ohm = 10000;
     ps_params_t req = swv(-400, 500, 50, 2), fp; ps_gain_knobs_t fk, cur = {PS_GAIN_EXT, 0}; ps_adj_t adj[8]; bool edge;
-    autorange_input_t in = {32000, false, 0, 0, 0, false};
+    autorange_input_t in = {32000, false, 0, 0, 0, false, 0};
     TEST_ASSERT_EQUAL(0, autorange_decide(&in, &pr, &req, &cur, &fp, &fk, adj, 8, &edge));
     TEST_ASSERT_EQUAL_UINT8(PS_GAIN_EXT, fk.gain_idx);
     TEST_ASSERT_EQUAL_UINT8(0, fk.pga_idx);
@@ -148,7 +165,7 @@ void test_ext_gain_only_moves_pga(void) {
 void test_step_budget(void) {
     ps_profile_t pr; profile_default(&pr); pr.max_points = 200;
     ps_params_t req = swv(-500, 500, 25, 1), fp; ps_gain_knobs_t fk; ps_adj_t adj[8]; bool edge;
-    autorange_input_t in = {1000, false, 0, 0, 0, false};
+    autorange_input_t in = {1000, false, 0, 0, 0, false, 0};
     TEST_ASSERT_EQUAL(1, decide(&in, &pr, &req, &fp, &fk, adj, &edge));
     TEST_ASSERT_EQUAL_INT16(11, fp.p.swv.step);
     TEST_ASSERT_EQUAL(PS_RULE_STEP_BUDGET, adj[0].rule);
@@ -216,6 +233,8 @@ int main(void) {
     RUN_TEST(test_explore_dpv_down);
     RUN_TEST(test_saturation_pga);
     RUN_TEST(test_saturation_gain);
+    RUN_TEST(test_saturation_tia_lowers_gain);
+    RUN_TEST(test_small_signal_limited_by_tia);
     RUN_TEST(test_small_signal_pga_then_stop);
     RUN_TEST(test_small_signal_limited_by_total);
     RUN_TEST(test_small_signal_raises_gain_after_pga);

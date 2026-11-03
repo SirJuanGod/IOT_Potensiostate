@@ -74,10 +74,12 @@ size_t autorange_decide(const autorange_input_t *in, const ps_profile_t *prof, c
     *final_p = *req;
     if (peak_at_edge) *peak_at_edge = false;
 
-    /* 1. saturación: menos sensibilidad (PGA primero, luego ganancia); con ganancia externa solo la PGA */
-    if (frac * 100.0f > prof->sat_pct) {
+    /* 1. saturación del ADC o recorte del TIA: menos sensibilidad (PGA primero, luego ganancia; si recorta el TIA
+     *    la PGA no ayuda y se baja la ganancia); con ganancia externa solo la PGA */
+    const bool tia_clip = in->tia_frac * 100.0f > prof->sat_pct;
+    if (frac * 100.0f > prof->sat_pct || tia_clip) {
         before = k;
-        if (k.pga_idx > 0) k.pga_idx--;
+        if (k.pga_idx > 0 && !tia_clip) k.pga_idx--;
         else if (k.gain_idx != PS_GAIN_EXT) {
             int g = next_gain(prof->gain_mask, k.gain_idx, -1);
             if (g >= 0) k.gain_idx = (uint8_t)g;
@@ -97,9 +99,9 @@ size_t autorange_decide(const autorange_input_t *in, const ps_profile_t *prof, c
                 if (g < 0) break;
                 t.gain_idx = (uint8_t)g;
             } else break;
-            float proj = frac * ((float)PS_PGA_FSR_MV[cur->pga_idx] / PS_PGA_FSR_MV[t.pga_idx]);
-            if (t.gain_idx != cur->gain_idx) proj *= (float)PS_TIA_GAIN_OHM[t.gain_idx] / PS_TIA_GAIN_OHM[cur->gain_idx];
-            if (proj * 100.0f > prof->target_pct) break;
+            float g = t.gain_idx != cur->gain_idx ? (float)PS_TIA_GAIN_OHM[t.gain_idx] / PS_TIA_GAIN_OHM[cur->gain_idx] : 1.0f;
+            float proj = frac * ((float)PS_PGA_FSR_MV[cur->pga_idx] / PS_PGA_FSR_MV[t.pga_idx]) * g;
+            if (proj * 100.0f > prof->target_pct || in->tia_frac * g * 100.0f > prof->target_pct) break;   /* ni el ADC ni el TIA */
             k = t;
         }
         if (k.gain_idx != before.gain_idx || k.pga_idx != before.pga_idx)

@@ -19,6 +19,14 @@ void test_err_set(void){ ps_err_t e; ps_err_set(&e, PS_ERR_RANGE, "a_very_long_f
                          TEST_ASSERT_EQUAL_UINT(23, strlen(e.field)); TEST_ASSERT_EQUAL_STRING("msg", e.msg);
                          ps_err_set(NULL, PS_ERR_HW, "x", 0, "y"); /* no debe fallar */ }
 
+void test_tia_frac(void){ /* holgura = min(VREF/2, 3300 − VREF/2) − 50 mV */
+  /* VREF ≈ 2000 mV (código 39719): holgura 950 mV; PGA 2: 16 cuentas por mV */
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, ps_tia_frac(15200, 2, 39719, 3300));
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.5f, ps_tia_frac(-7600, 2, 39719, 3300));
+  /* VREF ≈ 3300 mV (código 65535): holgura 1600 mV; PGA 1: 8 cuentas por mV */
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, ps_tia_frac(12800, 1, 65535, 3300));
+  TEST_ASSERT_EQUAL_HEX8(0x02, PS_FLAG_TIA_CLIP); }
+
 int main(void){ UNITY_BEGIN(); RUN_TEST(test_pick_dr); RUN_TEST(test_conv_us); RUN_TEST(test_current);
                 RUN_TEST(test_r_tia); RUN_TEST(test_fs_frac); RUN_TEST(test_min_step); RUN_TEST(test_cal_default);
-                RUN_TEST(test_err_set); return UNITY_END(); }
+                RUN_TEST(test_err_set); RUN_TEST(test_tia_frac); return UNITY_END(); }
