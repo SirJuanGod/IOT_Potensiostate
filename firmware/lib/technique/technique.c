@@ -59,16 +59,17 @@ static void fill(ps_step_t *o, int32_t e, int32_t x, uint32_t dur, uint8_t tag, 
     o->cycle = 0; o->branch = PS_BR_UP; o->sample = sample;
 }
 
+/* SWV y DPV: el pulso (fwd en SWV) va en el sentido del barrido, así la diferencia tiene el signo de redox */
 static void swv_at(const ps_swv_t *s, uint32_t k, ps_step_t *o) {
-    int32_t x = s->start + sgn(s->end - s->start) * (int32_t)(k / 2) * mag1(s->step), a = abs(s->amp);
+    int32_t d = sgn(s->end - s->start), x = s->start + d * (int32_t)(k / 2) * mag1(s->step), a = d * abs(s->amp);
     double half = 1e6 / (2.0 * s->freq_hz);
     fill(o, (k & 1) ? x - a : x + a, x, (uint32_t)(half + 0.5), (k & 1) ? PS_TAG_REV : PS_TAG_FWD, true);
 }
 
 static void dpv_at(const ps_dpv_t *d, uint32_t k, ps_step_t *o) {
-    int32_t x = d->start + sgn(d->end - d->start) * (int32_t)(k / 2) * mag1(d->step);
+    int32_t dir = sgn(d->end - d->start), x = d->start + dir * (int32_t)(k / 2) * mag1(d->step);
     uint32_t base = d->period_ms > d->width_ms ? d->period_ms - d->width_ms : 0;
-    if (k & 1) fill(o, x + abs(d->amp), x, ms_us(d->width_ms), PS_TAG_PULSE, true);
+    if (k & 1) fill(o, x + dir * abs(d->amp), x, ms_us(d->width_ms), PS_TAG_PULSE, true);
     else       fill(o, x, x, ms_us(base), PS_TAG_BASE, true);
 }
 
@@ -162,9 +163,9 @@ void tech_e_extremes(const ps_params_t *p, int16_t *e_min, int16_t *e_max) {
     default: {
         int16_t l, h, st;
         tech_get_window(p, &l, &h, &st); lo = l; hi = h;
-        /* SWV aplica x±amp; DPV solo x+amp; NPV aplica x y start (dentro del rango) */
+        /* SWV aplica x±amp; DPV x+amp en el sentido del barrido; NPV aplica x y start (dentro del rango) */
         if (p->tec == PS_TEC_SWV) dn = up = abs(p->p.swv.amp);
-        else if (p->tec == PS_TEC_DPV) up = abs(p->p.dpv.amp);
+        else if (p->tec == PS_TEC_DPV) *(p->p.dpv.end >= p->p.dpv.start ? &up : &dn) = abs(p->p.dpv.amp);
         break; }
     }
     *e_min = (int16_t)(lo - dn); *e_max = (int16_t)(hi + up);

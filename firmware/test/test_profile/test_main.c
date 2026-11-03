@@ -32,6 +32,22 @@ void test_validate_rejects_amp(void) {
     TEST_ASSERT_FALSE(profile_validate_run(&p, &r, 3, 3300, &e));
     expect_field(&e, "amp", 100);
 }
+void test_validate_rejects_nonpositive_amp(void) {
+    ps_profile_t p; ps_err_t e; profile_default(&p);
+    ps_params_t r[3] = { swv(-400, 500, 50, 1, 25.0f), {.tec = PS_TEC_DPV}, {.tec = PS_TEC_NPV} };
+    r[1].p.dpv = (ps_dpv_t){-400, 400, 50, 5, 200, 50};
+    r[2].p.npv = (ps_npv_t){-400, 400, 10, 50, 200, 1000};
+    int16_t *amp[3] = { &r[0].p.swv.amp, &r[1].p.dpv.amp, &r[2].p.npv.amp };
+    for (int k = 0; k < 3; k++) {
+        TEST_ASSERT_TRUE_MESSAGE(profile_validate_run(&p, &r[k], 3, 3300, &e), e.field);
+        *amp[k] = -10;
+        TEST_ASSERT_FALSE(profile_validate_run(&p, &r[k], 3, 3300, &e));
+        expect_field(&e, "amp", 1);
+        *amp[k] = 0;
+        TEST_ASSERT_FALSE(profile_validate_run(&p, &r[k], 3, 3300, &e));
+        expect_field(&e, "amp", 1);
+    }
+}
 void test_validate_rejects_too_fast(void) {
     ps_profile_t p; ps_err_t e; profile_default(&p); p.freq_max_hz = 1000;
     ps_params_t r = swv(-400, 500, 50, 1, 250.0f);   /* medio paso 2000 us < 2280 us */
@@ -113,7 +129,7 @@ void test_profile_check_rejects_ext_default_without_r(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_default_is_valid); RUN_TEST(test_validate_accepts_zero_crossing);
-    RUN_TEST(test_validate_rejects_amp); RUN_TEST(test_validate_rejects_too_fast);
+    RUN_TEST(test_validate_rejects_amp); RUN_TEST(test_validate_rejects_nonpositive_amp); RUN_TEST(test_validate_rejects_too_fast);
     RUN_TEST(test_validate_rejects_points); RUN_TEST(test_validate_rejects_ext_gain_without_r);
     RUN_TEST(test_validate_rejects_out_of_profile); RUN_TEST(test_validate_rejects_cv_offgrid);
     RUN_TEST(test_validate_rejects_width_gt_period); RUN_TEST(test_validate_rejects_t1_too_long);

@@ -38,6 +38,14 @@ void test_explore_swv(void) {
     TEST_ASSERT_EQUAL_INT16(8, out.p.swv.step);
     TEST_ASSERT_EQUAL_INT16(50, out.p.swv.amp);
 }
+void test_explore_dpv_down(void) {   /* barrido hacia abajo: el pulso resta amp, el margen va abajo */
+    ps_profile_t pr; ps_err_t e; profile_default(&pr);
+    ps_params_t req = dpv(400, -400, 50, 5), out;
+    autorange_explore_params(&req, &pr, &out);
+    TEST_ASSERT_EQUAL_INT16(600, out.p.dpv.start);
+    TEST_ASSERT_EQUAL_INT16(-550, out.p.dpv.end);
+    TEST_ASSERT_TRUE_MESSAGE(profile_validate_run(&pr, &out, CUR.gain_idx, 3300, &e), e.field);
+}
 void test_saturation_pga(void) {
     ps_profile_t pr; profile_default(&pr);
     ps_params_t req = swv(-400, 500, 50, 2), fp; ps_gain_knobs_t fk; ps_adj_t adj[8]; bool edge;
@@ -205,6 +213,7 @@ void test_zoom_ignores_unusable_fwhm(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_explore_swv);
+    RUN_TEST(test_explore_dpv_down);
     RUN_TEST(test_saturation_pga);
     RUN_TEST(test_saturation_gain);
     RUN_TEST(test_small_signal_pga_then_stop);

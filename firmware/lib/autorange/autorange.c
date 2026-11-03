@@ -5,11 +5,13 @@
 
 #define PGA_MAX 5
 
-/* límites de la ventana de x para la técnica: el recorrido real suma ±amp (SWV) o +amp (DPV) */
+/* límites de la ventana de x para la técnica: el recorrido real suma ±amp (SWV) o amp en el sentido del barrido (DPV) */
 static void win_limits(const ps_params_t *p, const ps_profile_t *prof, int32_t *lo, int32_t *hi) {
     *lo = prof->e_min_mv; *hi = prof->e_max_mv;
     if (p->tec == PS_TEC_SWV) { *lo += abs(p->p.swv.amp); *hi -= abs(p->p.swv.amp); }
-    else if (p->tec == PS_TEC_DPV) *hi -= abs(p->p.dpv.amp);
+    else if (p->tec == PS_TEC_DPV) {
+        if (p->p.dpv.end >= p->p.dpv.start) *hi -= abs(p->p.dpv.amp); else *lo += abs(p->p.dpv.amp);
+    }
 }
 
 /* tope del "paso": en NPV es amp y se valida contra amp_max */

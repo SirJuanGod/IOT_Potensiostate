@@ -72,6 +72,13 @@ static bool step_ok(const ps_profile_t *p, int32_t v, const char *field, ps_err_
     return true;
 }
 
+/* amplitud de SWV/DPV/NPV: positiva (el sentido lo da el barrido) y dentro del perfil */
+static bool amp_ok(const ps_profile_t *p, int32_t v, ps_err_t *err) {
+    if (v < 1) return fail(err, "amp", 1, "amplitud debe ser > 0");
+    if (v > p->amp_max_mv) return fail(err, "amp", p->amp_max_mv, "amplitud mayor que el maximo");
+    return true;
+}
+
 static bool ms_ok(uint32_t v, const char *field, ps_err_t *err) {
     return v <= MAX_TIME_MS || fail(err, field, MAX_TIME_MS, "tiempo demasiado largo");
 }
@@ -147,17 +154,17 @@ bool profile_validate_run(const ps_profile_t *p, const ps_params_t *run, uint8_t
     case PS_TEC_SWV: {
         const ps_swv_t *s = &run->p.swv;
         if (!step_ok(p, s->step, "step", err)) return false;
-        if (abs(s->amp) > p->amp_max_mv) return fail(err, "amp", p->amp_max_mv, "amplitud mayor que el maximo");
+        if (!amp_ok(p, s->amp, err)) return false;
         if (!(s->freq_hz >= p->freq_min_hz)) return fail(err, "freq_hz", (int32_t)p->freq_min_hz, "frecuencia menor que el minimo");
         if (!(s->freq_hz <= p->freq_max_hz)) return fail(err, "freq_hz", (int32_t)p->freq_max_hz, "frecuencia mayor que el maximo");
         break;
     }
     case PS_TEC_DPV:
         if (!step_ok(p, run->p.dpv.step, "step", err)) return false;
-        if (abs(run->p.dpv.amp) > p->amp_max_mv) return fail(err, "amp", p->amp_max_mv, "amplitud mayor que el maximo");
+        if (!amp_ok(p, run->p.dpv.amp, err)) return false;
         break;
     case PS_TEC_NPV:   /* en NPV amp es el incremento de x y a la vez la amplitud: solo tope amp_max */
-        if (abs(run->p.npv.amp) > p->amp_max_mv) return fail(err, "amp", p->amp_max_mv, "amplitud mayor que el maximo");
+        if (!amp_ok(p, run->p.npv.amp, err)) return false;
         break;
     case PS_TEC_CA:
         if (run->p.ca.samples == 0) return fail(err, "samples", 1, "se requiere al menos 1 muestra");

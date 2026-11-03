@@ -11,8 +11,15 @@ void test_swv_forward(void){ ps_params_t p=swv(-400,500); ps_step_t st;
   tech_step_at(&p,1,&st); TEST_ASSERT_EQUAL_INT16(-450,st.e_mv); TEST_ASSERT_EQUAL(PS_TAG_REV,st.tag);
   tech_step_at(&p,1801,&st); TEST_ASSERT_EQUAL_INT16(500,st.x_mv); TEST_ASSERT_EQUAL_INT16(450,st.e_mv);
   TEST_ASSERT_FALSE(tech_step_at(&p,1802,&st)); }
-void test_swv_backward(void){ ps_params_t p=swv(500,-400); ps_step_t st; tech_step_at(&p,0,&st);
-  TEST_ASSERT_EQUAL_INT16(500,st.x_mv); TEST_ASSERT_EQUAL_INT16(550,st.e_mv); tech_step_at(&p,2,&st); TEST_ASSERT_EQUAL_INT16(499,st.x_mv); }
+void test_swv_backward(void){ ps_params_t p=swv(500,-400); ps_step_t st; tech_step_at(&p,0,&st);   /* fwd en el sentido del barrido */
+  TEST_ASSERT_EQUAL_INT16(500,st.x_mv); TEST_ASSERT_EQUAL_INT16(450,st.e_mv); TEST_ASSERT_EQUAL(PS_TAG_FWD,st.tag);
+  tech_step_at(&p,1,&st); TEST_ASSERT_EQUAL_INT16(550,st.e_mv); TEST_ASSERT_EQUAL(PS_TAG_REV,st.tag);
+  tech_step_at(&p,2,&st); TEST_ASSERT_EQUAL_INT16(499,st.x_mv); }
+void test_dpv_backward(void){ /* 100→0: el pulso va hacia abajo */
+  ps_params_t p={.tec=PS_TEC_DPV}; p.p.dpv=(ps_dpv_t){100,0,50,10,200,50}; ps_step_t st; int16_t lo,hi;
+  tech_step_at(&p,1,&st); TEST_ASSERT_EQUAL_INT16(50,st.e_mv); TEST_ASSERT_EQUAL_INT16(100,st.x_mv); TEST_ASSERT_EQUAL(PS_TAG_PULSE,st.tag);
+  tech_step_at(&p,21,&st); TEST_ASSERT_EQUAL_INT16(-50,st.e_mv); TEST_ASSERT_EQUAL_INT16(0,st.x_mv);
+  tech_e_extremes(&p,&lo,&hi); TEST_ASSERT_EQUAL_INT16(-50,lo); TEST_ASSERT_EQUAL_INT16(100,hi); }
 void test_dpv(void){ /* 0→100, amp 50, step 10, period 200, width 50 */
   ps_params_t p={.tec=PS_TEC_DPV}; p.p.dpv=(ps_dpv_t){0,100,50,10,200,50}; ps_step_t st;
   TEST_ASSERT_EQUAL_UINT32(22, tech_num_steps(&p)); TEST_ASSERT_EQUAL_UINT32(22, tech_num_samples(&p));
@@ -64,6 +71,6 @@ void test_window_roundtrip(void){ ps_params_t p=swv(-400,500); int16_t lo,hi,ste
   TEST_ASSERT_EQUAL_INT16(300,p.p.swv.start); TEST_ASSERT_EQUAL_INT16(-100,p.p.swv.end);
   tech_get_window(&p,&lo,&hi,&step); TEST_ASSERT_EQUAL_INT16(-100,lo); TEST_ASSERT_EQUAL_INT16(300,hi); }
 
-int main(void){ UNITY_BEGIN(); RUN_TEST(test_swv_forward); RUN_TEST(test_swv_backward); RUN_TEST(test_dpv); RUN_TEST(test_npv);
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_swv_forward); RUN_TEST(test_swv_backward); RUN_TEST(test_dpv_backward); RUN_TEST(test_dpv); RUN_TEST(test_npv);
   RUN_TEST(test_cv_two_cycles); RUN_TEST(test_cv_starts_down); RUN_TEST(test_ca); RUN_TEST(test_extremes);
   RUN_TEST(test_window_roundtrip); return UNITY_END(); }
