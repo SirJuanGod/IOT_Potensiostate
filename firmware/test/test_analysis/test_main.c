@@ -2,6 +2,7 @@
 #include <string.h>
 #include <unity.h>
 #include "analysis.h"
+#include "technique.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -137,7 +138,62 @@ void test_ca_features(void) {
     TEST_ASSERT_EQUAL_FLOAT(5.0f, ca.iss_na[0]);
     TEST_ASSERT_EQUAL_FLOAT(7.0f, ca.iss_na[1]);
     TEST_ASSERT_EQUAL_FLOAT(9.0f, ca.iss_na[2]);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 4.5f, ca.q_nc[0]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 5.0f, ca.q_nc[0]);   /* incluye el tramo inicio del segmento → 1ª muestra */
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 7.0f, ca.q_nc[1]);
+}
+
+/* muestras CA como las toma el equipo: al final de cada paso (t = Σdur), corriente constante */
+static size_t ca_samples(uint16_t samples, ps_sample_t *s, float *i) {
+    ps_params_t p = {.tec = PS_TEC_CA}; p.p.ca = (ps_ca_t){0, -200, 200, 1000, 2000, 2000, samples};
+    uint32_t t = 0, n = tech_num_steps(&p);
+    for (uint32_t k = 0; k < n; k++) {
+        ps_step_t st; tech_step_at(&p, k, &st);
+        t += st.dur_us;
+        s[k] = (ps_sample_t){.t_us = t, .tag = st.tag, .branch = st.branch};
+        i[k] = 5.0f;
+    }
+    return n;
+}
+
+void test_ca_charge_independent_of_samples(void) {
+    static ps_sample_t s[60]; static float i[60];
+    ps_ca_feat_t a, b;
+    analysis_ca(s, i, ca_samples(10, s, i), &a);
+    analysis_ca(s, i, ca_samples(20, s, i), &b);
+    const float q[3] = {5.0f, 10.0f, 10.0f};   /* 5 nA × 1 s, 2 s, 2 s */
+    for (int k = 0; k < 3; k++) {
+        TEST_ASSERT_FLOAT_WITHIN(1e-3f, q[k], a.q_nc[k]);
+        TEST_ASSERT_FLOAT_WITHIN(1e-3f, q[k], b.q_nc[k]);
+    }
+    analysis_ca(s, i, ca_samples(1, s, i), &a);   /* una muestra por segmento: el segmento 0 empieza en t0 */
+    for (int k = 0; k < 3; k++) TEST_ASSERT_FLOAT_WITHIN(1e-3f, q[k], a.q_nc[k]);
+}
+
+/* CV 0→500→−500→0 (start entre vértices, 2 ciclos) con un pico gaussiano en la rama elegida */
+void test_cv_start_between_vertices(void) {
+    ps_params_t p = {.tec = PS_TEC_CV}; p.p.cv = (ps_cv_t){2, 0, 0, 500, -500, 5, 100};
+    static ps_sample_t s[1000]; static float i[1000]; static int16_t xb[1000]; static float yb[1000];
+    ps_profile_t pr; profile_default(&pr);
+    pr.base_win1 = (ps_win_t){-500, -400}; pr.base_win2 = (ps_win_t){400, 500};   /* dentro de cada rama */
+    const int8_t rx[2] = {1, -1};
+    const int16_t e0[2] = {0, 20};   /* 0: el pico cae justo en el corte de la rama ascendente */
+    for (int r = 0; r < 2; r++) for (int c = 0; c < 2; c++) {
+        uint32_t n = tech_num_steps(&p);
+        for (uint32_t k = 0; k < n; k++) {
+            ps_step_t st; tech_step_at(&p, k, &st);
+            float d = (st.x_mv - e0[c]) / 40.0f, sg = st.branch == PS_BR_UP ? 1.0f : -1.0f;
+            s[k] = (ps_sample_t){.x_mv = st.x_mv, .tag = st.tag, .cycle = st.cycle, .branch = st.branch};
+            i[k] = 0.01f * st.x_mv + sg * 100.0f * expf(-d * d);
+        }
+        pr.redox = rx[r];
+        ps_features_t f;
+        TEST_ASSERT_TRUE(analysis_features(s, i, n, PS_TEC_CV, &pr, xb, yb, &f));
+        TEST_ASSERT_TRUE(f.has_peak);
+        TEST_ASSERT_EQUAL_INT16(e0[c], f.pk.ep_mv);
+        TEST_ASSERT_FLOAT_WITHIN(2.0f, 100.0f * rx[r], f.pk.ip_na);
+        TEST_ASSERT_FLOAT_WITHIN(5.0f, 66.6f, f.pk.fwhm_mv);
+        for (size_t k = 1; k < 200; k++) TEST_ASSERT_TRUE(xb[k] >= xb[k - 1]);   /* curva monótona en x */
+    }
 }
 
 void test_features_orchestration(void) {
@@ -169,5 +225,7 @@ int main(void) {
     RUN_TEST(test_build_curve_cv_last_cycle);
     RUN_TEST(test_ca_features);
     RUN_TEST(test_features_orchestration);
+    RUN_TEST(test_ca_charge_independent_of_samples);
+    RUN_TEST(test_cv_start_between_vertices);
     return UNITY_END();
 }

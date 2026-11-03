@@ -57,6 +57,13 @@ size_t analysis_build_curve(const ps_sample_t *s, const float *i_na, size_t n, p
         for (size_t k = 0; k < n; k++) if (s[k].tag == PS_TAG_STEP && s[k].cycle > last) last = s[k].cycle;
         for (size_t k = 0; k < n; k++)
             if (s[k].tag == PS_TAG_STEP && s[k].cycle == last && s[k].branch == br) { x_mv[cnt] = s[k].x_mv; y_na[cnt] = i_na[k]; cnt++; }
+        /* Con start entre vértices la rama llega en dos tramos (p. ej. 5..500 y luego −495..0): se ordena por x
+         * (inserción estable; los tramos ya vienen ordenados, así que el costo es el de su solape). */
+        for (size_t k = 1; k < cnt; k++) {
+            int16_t xk = x_mv[k]; float yk = y_na[k]; size_t j = k;
+            for (; j > 0 && x_mv[j - 1] > xk; j--) { x_mv[j] = x_mv[j - 1]; y_na[j] = y_na[j - 1]; }
+            x_mv[j] = xk; y_na[j] = yk;
+        }
         return cnt;
     }
     default: return 0;
@@ -126,18 +133,25 @@ bool analysis_peak(const int16_t *x, const float *y, size_t n, float m, float b,
 }
 
 void analysis_ca(const ps_sample_t *s, const float *i_na, size_t n, ps_ca_feat_t *out) {
+    double t_prev = 0;   /* inicio del segmento: última muestra del anterior (segmento 0: ver abajo) */
     for (uint8_t seg = 0; seg < 3; seg++) {
-        size_t cnt = 0, idx = 0, tail, prev = n;
+        size_t cnt = 0, idx = 0, tail, prev = n, first = n;
         double q = 0, sum = 0;
-        for (size_t k = 0; k < n; k++) if (s[k].branch == seg) cnt++;
+        for (size_t k = 0; k < n; k++) if (s[k].branch == seg) { if (first == n) first = k; prev = k; cnt++; }
+        /* la muestra cae al final de su paso: el segmento 0 empieza un paso antes de su 1ª muestra
+         * (con una sola muestra, en t0 = 0); así la carga no depende de `samples` */
+        if (seg == 0 && cnt > 1) t_prev = s[first].t_us - (double)(s[prev].t_us - s[first].t_us) / (double)(cnt - 1);
+        if (cnt) q = i_na[first] * ((double)s[first].t_us - t_prev);
         tail = cnt - (cnt / 5 > 0 ? cnt / 5 : (cnt > 0 ? 1 : 0));   /* último 20 %, mínimo 1 muestra */
         size_t used = cnt - tail;
+        prev = n;
         for (size_t k = 0; k < n; k++) {
             if (s[k].branch != seg) continue;
             if (idx >= tail) sum += i_na[k];
             if (prev != n) q += 0.5 * (i_na[prev] + i_na[k]) * (double)(s[k].t_us - s[prev].t_us);
             prev = k; idx++;
         }
+        if (cnt) t_prev = s[prev].t_us;
         out->iss_na[seg] = used ? (float)(sum / (double)used) : 0.0f;
         out->q_nc[seg] = (float)(q / 1e6);   /* nA·µs = 1e-6 nC */
     }
