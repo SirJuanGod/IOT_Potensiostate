@@ -26,7 +26,7 @@ WiFi, broker URI, device id and `PS_DAC_VREF_MV` are Kconfig options (`src/Kconf
 
 - `lib/<name>/` is **pure**: no ESP-IDF or FreeRTOS headers; it must build with host gcc. Libs with logic get a Unity test in `test/test_<name>/` (`model_hook` is a stub, `lib_ignore`d in native). `src/` is **hardware** (drivers, NVS, network, tasks) and is only built for the device.
 - `src/` files are listed in `src/CMakeLists.txt`; `lib/` is picked up by PlatformIO's LDF (no `EXTRA_COMPONENT_DIRS`).
-- No `vTaskDelay` or busy-wait inside a measurement pass: step times are esp_timer one-shots at absolute times `t0 + Σdur`.
+- No `vTaskDelay` or busy-wait inside a measurement pass: step times are esp_timer one-shots at absolute times `t0 + Σdur`. The only exception is the single LMP-settle `vTaskDelay` at pass start, after `lmp_configure` and before `t0`.
 - Never publish data during a pass. New I2C driver (`driver/i2c_master.h`) only.
 - Files derived from LinnesLab (LMP91000, MiniStatAnalyst) keep their MIT notice.
 

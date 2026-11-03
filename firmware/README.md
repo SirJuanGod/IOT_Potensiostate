@@ -40,6 +40,8 @@ Las credenciales nunca van en el código.
 - `lib/` es **puro**: no incluye cabeceras de ESP-IDF ni de FreeRTOS y se prueba en la PC
   (`ps_common`, `potential`, `technique`, `profile`, `analysis`, `autorange`, `protocol`,
   `hwregs`, `model_hook`). Integración: `lib/` plano de PlatformIO, sin `EXTRA_COMPONENT_DIRS`.
+  `model_hook` no se prueba en la PC (`lib_ignore` en `[env:native]`). `test_pipeline` prueba de
+  extremo a extremo `technique` → `analysis`.
 - `src/` es **hardware**: drivers (`lmp91000`, `ad5662`, `ads1115`), `store` (NVS), `net`
   (WiFi + MQTT), `pub` (tarea de publicación), `engine` (tarea de medición) y `main`.
 
@@ -47,7 +49,7 @@ Las credenciales nunca van en el código.
 
 | Tarea | Prioridad | Función |
 |---|---|---|
-| `meas_task` | 10 | Ejecuta los runs. Entre pasos solo se bloquea en su notificación (índice 0): `esp_timer` one-shot marca el disparo del ADC y el fin de cada paso a tiempo absoluto (`t0 + Σdur`), y la interrupción ALERT/RDY avisa la conversión lista. Sin `vTaskDelay` ni esperas activas dentro de una pasada. |
+| `meas_task` | 10 | Ejecuta los runs. Entre pasos solo se bloquea en su notificación (índice 0): `esp_timer` one-shot marca el disparo del ADC y el fin de cada paso a tiempo absoluto (`t0 + Σdur`), y la interrupción ALERT/RDY avisa la conversión lista. Sin `vTaskDelay` ni esperas activas dentro de una pasada; la única espera es el asentamiento del LMP tras configurarlo, antes de `t0`. |
 | esp-mqtt | 5 | Recibe comandos y llama a `on_cmd` (`main.c`), que solo valida, guarda en NVS o encola. |
 | `pub_task` | 3 | Publica una pasada terminada en bloques de ≤ 4 KB; avisa a `meas_task` en el índice 1. Nunca publica durante una pasada. |
 
@@ -66,7 +68,7 @@ Comandos en `cmd`:
 {"cmd":"run","id":"muestra_07","tec":"swv","auto":true,"gain":"auto",
  "params":{"start":-400,"end":500,"amp":25,"step":2,"freq_hz":25}}
 {"cmd":"run","id":"cv1","tec":"cv","gain":3,
- "params":{"cycles":2,"start":0,"vertex1":500,"vertex2":-500,"end":0,"step":5,"rate_mV_s":100}}
+ "params":{"cycles":2,"start":0,"vertex1":600,"vertex2":-600,"end":0,"step":5,"rate_mV_s":100}}
 {"cmd":"run","id":"dpv1","tec":"dpv","params":{"start":-400,"end":400,"amp":50,"step":5,"period_ms":200,"width_ms":50}}
 {"cmd":"run","id":"npv1","tec":"npv","params":{"start":-400,"end":400,"amp":10,"width_ms":50,"period_ms":200,"quiet_ms":1000}}
 {"cmd":"run","id":"ca1","tec":"ca","params":{"pre_step":0,"quiet_ms":1000,"v1":-200,"t1_ms":2000,"v2":300,"t2_ms":2000,"samples":50}}
@@ -92,13 +94,29 @@ Comandos en `cmd`:
   la calibración. `set_*` y `select_profile` responden `idle` o `error`.
 - La calibración la calcula la PC (offset en nA y ganancia por índice de ganancia 0..7) y se
   aplica solo a `i_nA`, nunca a los crudos.
+- SWV y DPV: `amp` > 0; el pulso va en el sentido del barrido (`end` < `start` → pulsos hacia
+  abajo), así una reducción barrida hacia abajo da un pico negativo que encuentra `redox: -1`.
+- CV: las características usan la rama del último ciclo (`redox` +1 → ascendente, −1 →
+  descendente), ordenada por x. Cada vértice pertenece a la rama que llega a él, así que las
+  ventanas de línea base del perfil deben caer dentro de [vertex2 + step, vertex1] (rama
+  ascendente); con el perfil por defecto (`[-600,-500]`, `[500,600]`) los vértices van en ±600.
+- Una pasada no puede durar más de 71 min (`field:"duration"`).
 
 Salida de cada pasada: cabecera en `data` (parámetros efectivos, perfil, ganancia, RLoad, PGA,
-`dac_vref_mv`, `t0_us`, `fw_version`, `cols`), bloques de filas en `data`
+`dac_vref_mv`, `t0_us`, `fw_version`, `r_ext_ohm`, `cal_offset_nA` y `cal_gain` aplicados a `i_nA`,
+`cols`), bloques de filas en `data`
 (`[t_us,tag,cycle,branch,x_mV,E_set_mV,E_apl_uV,sign,bias_idx,dac_code,adc_raw,pga,dr,i_nA,flags]`,
 `t_us` relativo a `t0_us`) y, en la última pasada, `result` con `features`, `adjustments` y
-`flags` (`no_peak`, `peak_at_edge`, `aborted`, `error`). `status` pasa a `running` al empezar
-cada pasada y a `idle` al terminar el run.
+`flags` (`no_peak`, `peak_at_edge`, `aborted`, `error`). `status` pasa a `running` (retenido) al
+empezar cada pasada y a `idle` al terminar el run.
+
+- `flags` de cada fila: `0x01` = `snapped` (E pedido con |E| < 15 mV, ver spec §7) y `0x02` =
+  `tia_clip` (|VOUT − C1| mayor que la holgura del TIA, min(VREF/2, 3300 − VREF/2) − 50 mV: esa
+  corriente está recortada). El recorte del TIA cuenta para la regla de saturación del ajuste.
+- **La PC debe deduplicar los bloques por (`id`, `pass`, `seq`):** con QoS 1 un bloque puede
+  llegar dos veces.
+- Ajuste automático: con las ventanas de línea base del perfil por defecto en los extremos
+  (±500…600 mV), la ventana final se amplía hasta ellas y el acercamiento solo afina el paso.
 
 ## Conexionado
 
@@ -130,7 +148,8 @@ ESP32-C3 ──SPI──► AD5662 ──Vout──► LMP91000.VREF (1,5–3,3 
 ## Puesta en marcha del hardware
 
 - [ ] **(a) Celda de 10 kΩ** entre WE y RE/CE: correr cada técnica (CV, SWV, DPV, NPV, CA) y
-  comparar `i_nA` con E/R. De aquí salen el offset y la ganancia de calibración por índice de
+  comparar `i_nA` con E/R, **también el signo**: con E > 0 la corriente debe salir con el signo
+  de E/R; si sale invertida, corregir el signo antes de usar `redox` o las características. De aquí salen el offset y la ganancia de calibración por índice de
   ganancia (`set_calibration`).
 - [ ] **(b) Osciloscopio** en SYNC del AD5662 (CS, GPIO6) y en ALERT/RDY (GPIO10): el flanco de
   RDY debe caer antes del siguiente SYNC, es decir, la conversión termina antes del fin de paso.

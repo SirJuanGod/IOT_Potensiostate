@@ -207,9 +207,11 @@ Para un E pedido:
   se marca con el flag `snapped`. No se rechaza la medición: casi todo barrido cruza
   0 V. KickStat hace lo mismo.
 - **Resto:** para cada índice de bias 1..13 se calcula VREF = |E| / bias%. Se descartan
-  los que caen fuera de [1500, 3300] mV. Se redondea el código DAC y se elige la
-  combinación con **menor error** |E_aplicado − E|.
-  - En empate, gana la que tiene mayor VREF, para tener más señal en el TIA.
+  los que caen fuera de [1500, 3300] mV. Se redondea el código DAC y se calcula el error
+  |E_aplicado − E| de cada combinación.
+  - Se elige la de **mayor VREF** (menor bias %) cuyo error está a ≤ 10 µV del menor
+    error posible. Así el bias casi no cambia a lo largo de un barrido (≤ 20 cambios
+    entre 15 y 790 mV, en vez de saltar entre puntos vecinos) y el TIA tiene más señal.
 
 Se devuelven `signo`, `bias_idx`, `dac_code` y `E_aplicado_mV`, y los cuatro se guardan
 por punto. Con el DAC de 16 bits el error típico es mucho menor que la tolerancia de
@@ -221,6 +223,12 @@ cero con E = 0.
 Al cambiar `bias_idx` o VREF entre puntos hay un transitorio. Se respeta un
 `settle_us` mínimo, configurable en el perfil, antes de muestrear.
 
+**Orden de escritura.** El bias (REFCN, I2C) y el DAC (SPI) no se escriben a la vez:
+entre las dos escrituras la celda ve p_nuevo·V_viejo (bias primero) o p_viejo·V_nuevo
+(DAC primero). Se escribe primero el que deja el intermedio de menor módulo
+(`potential_dac_first`). Como el producto de los dos intermedios es igual al de los dos
+extremos, el elegido nunca supera al mayor de |E_anterior| y |E_nuevo|.
+
 ## 8. Técnicas
 
 Mismos parámetros y semántica que KickStat. Potenciales en mV y tiempos en ms en la
@@ -229,10 +237,15 @@ interfaz (µs internamente). Cada paso muestreado guarda su `tag`.
 | Técnica | Parámetros | Pasos |
 |---|---|---|
 | CV | `cycles, start, end, vertex1, vertex2, step, rate_mV_s` | Barrido escalonado start→v1→v2→end por ciclo; dur = step/rate; sin repetir vértices; tag = ciclo y rama |
-| SWV | `start, end, amp, step, freq_hz` | Por escalón E: paso E+amp (`fwd`) y E−amp (`rev`), cada uno de 1/(2f); punto = i_fwd − i_rev |
-| DPV | `start, end, amp, step, period_ms, width_ms` | Por escalón E: base E durante period−width (`base`), pulso E+amp durante width (`pulse`); punto = i_pulse − i_base |
+| SWV | `start, end, amp, step, freq_hz` | Por escalón E: paso E+s·amp (`fwd`) y E−s·amp (`rev`), cada uno de 1/(2f); punto = i_fwd − i_rev |
+| DPV | `start, end, amp, step, period_ms, width_ms` | Por escalón E: base E durante period−width (`base`), pulso E+s·amp durante width (`pulse`); punto = i_pulse − i_base |
 | NPV | `start, end, amp, width_ms, period_ms, quiet_ms` | Reposo en start durante quiet; por escalón: pulso a E durante width (`pulse`), vuelta a start durante period−width (`base`) |
 | CA | `pre_step, quiet_ms, v1, t1_ms, v2, t2_ms, samples` | Tres segmentos {pre_step, v1, v2} con `samples` muestras equiespaciadas en cada uno |
+
+s = signo(end − start): el pulso va **en el sentido del barrido**. Así la diferencia
+tiene el signo de la reacción (positiva en oxidación barriendo hacia arriba, negativa
+en reducción barriendo hacia abajo) y `redox = −1` encuentra su pico. `amp` es una
+magnitud: debe ser > 0 (se rechaza `amp` ≤ 0 con el campo `amp`).
 
 Las dos corrientes de SWV/DPV/NPV se guardan **por separado**, además de la
 diferencia. KickStat solo guarda un ciclo de CV; aquí se guardan todos, con el número
@@ -261,6 +274,9 @@ características si hacen falta.
 Validación: todo comando `run` se valida contra el perfil activo **y** contra las
 restricciones físicas (§3). Si algo se sale, se rechaza con un error que dice qué
 campo y qué límite. Nunca se recorta en silencio. El perfil se fija y se lee por MQTT.
+Una pasada no puede durar más de 71 min (campo `duration`), para que `t_us` (32 bits)
+no dé la vuelta. El perfil acota `rload_idx` ≤ 3, `settle_us` ≤ 100 000, los
+porcentajes ≤ 100 y `fwhm_k` en 1..10.
 
 ## 10. Ajuste automático (dos pasadas)
 
@@ -271,9 +287,16 @@ Si `auto=true`:
 2. **Reglas** sobre la exploración, en orden. Los umbrales van en el perfil, con estos
    valores iniciales:
    - **Saturación:** algún |código ADC| > 95 % de la escala → bajar PGA y, si ya está
-     al mínimo, bajar la ganancia del TIA.
+     al mínimo, bajar la ganancia del TIA. También cuenta el **recorte del TIA**: con
+     INT_Z al 50 % la salida solo se aleja VREF/2 del cero interno hacia un lado, así
+     que por muestra la holgura es min(VREF/2, 3300 − VREF/2) − 50 mV, con
+     VREF = dac_code·DAC_VREF/65536 y |v_diff| = |adc_raw|·FSR/32768. La regla usa el
+     máximo de max(|raw|/32767, |v_diff|/holgura). Si lo que pasa del umbral es el TIA,
+     se baja directamente la ganancia (la PGA no lo alivia). Las muestras con
+     |v_diff| > holgura llevan el flag `tia_clip` (0x02).
    - **Señal pequeña:** pico corregido < 20 % de la escala → subir PGA y después la
-     ganancia del TIA, sin pasar del 80 % proyectado.
+     ganancia del TIA, sin pasar del 80 % proyectado (ni en el ADC ni en la holgura
+     del TIA).
    - **Pico en el borde:** dentro del 10 % del borde de la ventana → recentrar la
      ventana en el pico, sin salir de los límites.
    - **Pico bien ubicado:** ventana = pico ± k × ancho a media altura (k = 3), paso
@@ -282,7 +305,9 @@ Si `auto=true`:
    envía el informe de ajustes (qué regla se aplicó y valores antes → después).
 
 Si la exploración no encuentra pico, la definitiva se hace con los parámetros pedidos
-y se marca `no_peak`. Hay como máximo **una** definitiva; no hay bucles.
+y se marca `no_peak` (aunque la definitiva sí encuentre uno). Los parámetros de
+exploración también se validan contra el perfil; si no pasan, se explora lo pedido.
+Hay como máximo **una** definitiva; no hay bucles.
 
 *Decisiones del diseñador:*
 - La ventana final se **amplía siempre** para incluir las ventanas de línea base del
@@ -319,15 +344,17 @@ guarda en NVS y la aplica; no tiene un modo de calibración propio.
 
 **Datos (`data`)**, por pasada:
 - Un mensaje de cabecera con `id`, `pass` (`explore`/`final`), técnica, parámetros
-  efectivos, perfil, ganancia y RLoad, PGA, DR, `DAC_VREF_MV`, versión de firmware y
-  `t0`.
+  efectivos, perfil, ganancia y RLoad, PGA, DR, `DAC_VREF_MV`, versión de firmware,
+  `t0`, `r_ext_ohm` y la calibración aplicada a `i_nA` (`cal_offset_nA`, `cal_gain`
+  del índice de ganancia de la pasada).
 - Bloques de ≤ ~4 KB:
   ```
   {"id","pass","seq","last","rows":[[t_us,tag,cycle,branch,x_mV,E_set_mV,E_apl_uV,sign,bias_idx,dac_code,adc_raw,pga,dr,i_nA,flags], ...]}
   ```
   La cabecera incluye `cols` con esos nombres, para que cada mensaje se describa solo.
 - Los crudos (`dac_code`, `adc_raw`, `bias_idx`, `pga`) van siempre. `i_nA` es
-  derivado.
+  derivado. `flags` por fila: `snapped` (0x01) y `tia_clip` (0x02).
+- Con QoS 1 un bloque puede llegar repetido: la PC deduplica por (`id`, `pass`, `seq`).
 
 **Resultado (`result`)**
 ```json
@@ -336,7 +363,7 @@ guarda en NVS y la aplica; no tiene un modo de calibración propio.
 En CA, `features` es `{"iss_nA":[3],"q_nC":[3]}`.
 
 **Estado (`status`)**: `idle`, `running`, `error` con motivo, más un último deseo (LWT)
-`offline`.
+`offline`. `idle`, `running` y `offline` se publican retenidos.
 
 El `id` lo pone la PC y el ESP32 solo lo devuelve. La concentración real de cada
 muestra la asocia la PC.
@@ -362,6 +389,8 @@ guardados en NVS. Se aplican a `i_nA`, nunca a los crudos.
   - `analysis`: pico y línea base en curvas sintéticas.
   - `autorange`: cada regla.
   - `protocol`: validación contra límites y formato de bloques.
+  - `pipeline`: de extremo a extremo, `technique` → muestras sintéticas de una onda
+    reversible → `analysis`, en ambos sentidos de barrido y ambos signos de redox.
 - **En hardware:**
   - celda de resistencia con cada técnica, I medida vs. E/R;
   - comprobar con un osciloscopio que el disparo del ADC cae al final del paso;
