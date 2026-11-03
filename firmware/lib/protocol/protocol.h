@@ -24,6 +24,7 @@ typedef struct {
 typedef struct {
     const char *id; ps_pass_t pass; const ps_params_t *params; const char *profile_name;
     uint8_t gain_idx, rload_idx, pga_idx; uint32_t dac_vref_mv, n_samples; uint64_t t0_us; const char *fw_version;
+    uint32_t r_ext_ohm; float cal_offset_na, cal_gain;   /* calibración aplicada a i_nA (la del gain_idx del run) */
 } ps_run_meta_t;
 
 #define PS_RUN_NO_PEAK 0x01

@@ -101,5 +101,6 @@ void pub_status(const char *state, const ps_err_t *err)
      * lock de la API de MQTT; un mutex propio retenido por otra tarea bloqueada en ese lock sería un abrazo mortal. */
     char st[160];
     int len = proto_write_status(st, sizeof st, state, err);
-    if (len > 0) net_publish("status", st, len, strcmp(state, "idle") == 0 || strcmp(state, "offline") == 0);
+    if (len > 0) net_publish("status", st, len, strcmp(state, "idle") == 0 || strcmp(state, "offline") == 0 ||
+                                                strcmp(state, "running") == 0);
 }

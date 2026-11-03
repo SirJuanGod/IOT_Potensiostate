@@ -292,6 +292,8 @@ int proto_write_header(char *buf, size_t cap, const ps_run_meta_t *m) {
                  ",\"t0_us\":%" PRIu64 ",\"fw_version\":",
              m->gain_idx, m->rload_idx, m->pga_idx, m->dac_vref_mv, m->n_samples, m->t0_us);
     w_str(&w, m->fw_version);
+    w_printf(&w, ",\"r_ext_ohm\":%" PRIu32 ",\"cal_offset_nA\":", m->r_ext_ohm); w_f(&w, FF, m->cal_offset_na);
+    w_printf(&w, ",\"cal_gain\":"); w_f(&w, FF, m->cal_gain);
     w_printf(&w, ",\"cols\":[\"t_us\",\"tag\",\"cycle\",\"branch\",\"x_mV\",\"E_set_mV\",\"E_apl_uV\",\"sign\",\"bias_idx\","
                  "\"dac_code\",\"adc_raw\",\"pga\",\"dr\",\"i_nA\",\"flags\"]}");
     return w_done(&w);

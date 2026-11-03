@@ -225,7 +225,8 @@ static void publish(ps_pass_t pass, const ps_params_t *p, ps_gain_knobs_t k, int
     s_meta = (ps_run_meta_t){
         .id = s_cmd.id, .pass = pass, .params = p, .profile_name = s_prof.name, .gain_idx = k.gain_idx,
         .rload_idx = s_prof.rload_idx, .pga_idx = k.pga_idx, .dac_vref_mv = VREF_MV, .n_samples = (uint32_t)s_n,
-        .t0_us = (uint64_t)t0, .fw_version = FW_VERSION,
+        .t0_us = (uint64_t)t0, .fw_version = FW_VERSION, .r_ext_ohm = s_prof.r_ext_ohm,
+        .cal_offset_na = s_cal.offset_na[k.gain_idx], .cal_gain = s_cal.gain[k.gain_idx],
     };
     const ps_pass_ctx_t ctx = {
         .meta = &s_meta, .s = s_samples, .i_na = s_i_na, .n = s_n, .f = &s_feat, .adj = s_adj, .n_adj = n_adj,
@@ -266,8 +267,13 @@ static bool run(void)
     uint32_t flags = 0;
     if (s_cmd.auto_adj) {
         autorange_explore_params(&s_cmd.params, &s_prof, &s_explore);
+        if (!profile_validate_run(&s_prof, &s_explore, k.gain_idx, VREF_MV, &err)) {   /* no debería pasar */
+            ESP_LOGW(TAG, "exploracion invalida (%s): se exploran los parametros pedidos", err.field);
+            s_explore = s_cmd.params;
+        }
         pass_res_t r = do_pass(&s_explore, k, &t0);
         if (r != PASS_OK) { finish(r, PS_PASS_EXPLORE, &s_explore, k, t0, 0, 0); return true; }
+        if (s_explore.tec != PS_TEC_CA && !s_feat.has_peak) flags |= PS_RUN_NO_PEAK;   /* spec §10 */
 
         autorange_input_t in = {
             .has_peak = s_feat.has_peak, .ep_mv = s_feat.pk.ep_mv, .fwhm_mv = s_feat.pk.fwhm_mv, .at_edge = s_feat.pk.at_edge,

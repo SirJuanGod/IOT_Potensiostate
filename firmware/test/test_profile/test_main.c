@@ -126,6 +126,34 @@ void test_profile_check_rejects_ext_default_without_r(void) {
     TEST_ASSERT_TRUE(profile_check(&p, 3300, &e));
 }
 
+void test_validate_rejects_long_run(void) {   /* > 71 min: t_us (uint32) daría la vuelta */
+    ps_profile_t p; ps_err_t e; profile_default(&p);
+    ps_params_t r = {.tec = PS_TEC_CA}; r.p.ca = (ps_ca_t){0, 100, -100, 1420000, 1420000, 1420000, 10};
+    TEST_ASSERT_TRUE_MESSAGE(profile_validate_run(&p, &r, 3, 3300, &e), e.field);   /* 71 min justos */
+    r.p.ca.t2_ms++;
+    TEST_ASSERT_FALSE(profile_validate_run(&p, &r, 3, 3300, &e));
+    expect_field(&e, "duration", 4260000);
+}
+void test_profile_check_bounds(void) {
+    ps_profile_t p; ps_err_t e;
+    struct { const char *f; int32_t lim; } c[] = {
+        {"rload_idx", 3}, {"settle_us", 100000}, {"sat_pct", 100}, {"small_pct", 100}, {"edge_pct", 100},
+        {"target_pct", 100}, {"fwhm_k", 10}, {"fwhm_k", 1}};
+    for (int k = 0; k < 8; k++) {
+        profile_default(&p);
+        switch (k) {
+        case 0: p.rload_idx = 4; break;      case 1: p.settle_us = 100001; break;
+        case 2: p.sat_pct = 101; break;      case 3: p.small_pct = 101; break;
+        case 4: p.edge_pct = 101; break;     case 5: p.target_pct = 101; break;
+        case 6: p.fwhm_k = 11; break;        default: p.fwhm_k = 0; break;
+        }
+        TEST_ASSERT_FALSE(profile_check(&p, 3300, &e));
+        expect_field(&e, c[k].f, c[k].lim);
+    }
+    profile_default(&p); p.rload_idx = 3; p.settle_us = 100000; p.sat_pct = 100; p.fwhm_k = 10;
+    TEST_ASSERT_TRUE(profile_check(&p, 3300, &e));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_default_is_valid); RUN_TEST(test_validate_accepts_zero_crossing);
@@ -136,5 +164,6 @@ int main(void) {
     RUN_TEST(test_profile_check_rejects_beyond_physical); RUN_TEST(test_profile_check_rejects_window_outside);
     RUN_TEST(test_profile_check_rejects_zero_min); RUN_TEST(test_validate_rejects_unknown_tec);
     RUN_TEST(test_profile_check_rejects_ext_default_without_r);
+    RUN_TEST(test_validate_rejects_long_run); RUN_TEST(test_profile_check_bounds);
     return UNITY_END();
 }

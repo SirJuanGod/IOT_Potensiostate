@@ -5,6 +5,7 @@
 #include "technique.h"
 
 #define MAX_TIME_MS 3600000u   /* tope de cualquier tiempo del comando: 1 h */
+#define MAX_RUN_MS 4260000u    /* tope de una pasada: 71 min (t_us es uint32: ~71,6 min) */
 
 static bool fail(ps_err_t *e, const char *field, int32_t limit, const char *msg) {
     ps_err_set(e, PS_ERR_RANGE, field, limit, msg);
@@ -54,6 +55,13 @@ bool profile_check(const ps_profile_t *p, uint32_t dac_vref_mv, ps_err_t *err) {
         return fail(err, "default_gain_idx", p->gain_mask, "ganancia por defecto no permitida");
     if (p->default_gain_idx == PS_GAIN_EXT && p->r_ext_ohm == 0)
         return fail(err, "default_gain_idx", 0, "ganancia externa sin r_ext_ohm");
+    if (p->rload_idx > 3) return fail(err, "rload_idx", 3, "rload_idx fuera de rango");
+    if (p->settle_us > 100000u) return fail(err, "settle_us", 100000, "asentamiento demasiado largo");
+    const struct { uint8_t v; const char *f; } pct[] = {
+        {p->sat_pct, "sat_pct"}, {p->small_pct, "small_pct"}, {p->edge_pct, "edge_pct"}, {p->target_pct, "target_pct"}};
+    for (unsigned k = 0; k < sizeof pct / sizeof pct[0]; k++)
+        if (pct[k].v > 100) return fail(err, pct[k].f, 100, "porcentaje mayor que 100");
+    if (p->fwhm_k < 1 || p->fwhm_k > 10) return fail(err, "fwhm_k", p->fwhm_k < 1 ? 1 : 10, "fwhm_k fuera de 1..10");
     return true;
 }
 
@@ -202,5 +210,10 @@ bool profile_validate_run(const ps_profile_t *p, const ps_params_t *run, uint8_t
 
     /* puntos y tiempo por muestra */
     if (tech_num_samples(run) > p->max_points) return fail(err, "points", p->max_points, "demasiados puntos");
+    /* duración total (pasos acotados por max_points, el recorrido es barato) */
+    uint64_t total_us = 0;
+    ps_step_t st;
+    for (uint32_t k = 0; tech_step_at(run, k, &st); k++) total_us += st.dur_us;
+    if (total_us > (uint64_t)MAX_RUN_MS * 1000u) return fail(err, "duration", MAX_RUN_MS, "pasada mas larga que 71 min");
     return sample_time_ok(p, run, err);
 }

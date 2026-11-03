@@ -14,4 +14,4 @@ typedef struct { const ps_run_meta_t *meta; const ps_sample_t *s; const float *i
 
 esp_err_t pub_start(void);                                                  /* crea pub_task (prioridad 3, stack 6144) */
 void      pub_publish_pass(const ps_pass_ctx_t *ctx, TaskHandle_t done_task);   /* encola; al terminar, xTaskNotifyGiveIndexed(done_task, 1) */
-void      pub_status(const char *state, const ps_err_t *err);               /* retain solo para "idle" y "offline"; seguro desde cualquier tarea */
+void      pub_status(const char *state, const ps_err_t *err);               /* retain para "idle", "running" y "offline"; seguro desde cualquier tarea */

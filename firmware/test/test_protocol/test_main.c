@@ -167,7 +167,8 @@ void test_rows_content_and_tiny_cap(void) {
 
 void test_header(void) {
     ps_params_t p = {.tec = PS_TEC_SWV}; p.p.swv = (ps_swv_t){-400, 500, 50, 1, 31.25f};
-    ps_run_meta_t m = {"muestra_07", PS_PASS_EXPLORE, &p, "default", 3, 0, 2, 3300, 901, 123456789012ull, "1.0.0"};
+    ps_run_meta_t m = {"muestra_07", PS_PASS_EXPLORE, &p, "default", 3, 0, 2, 3300, 901, 123456789012ull, "1.0.0",
+                       2200000, -1.5f, 1.25f};
     char buf[1500];
     TEST_ASSERT_GREATER_THAN(0, proto_write_header(buf, sizeof buf, &m));
     cJSON *r = cJSON_Parse(buf); TEST_ASSERT_NOT_NULL_MESSAGE(r, buf);
@@ -175,6 +176,9 @@ void test_header(void) {
     TEST_ASSERT_EQUAL_STRING("swv", cJSON_GetObjectItem(r, "tec")->valuestring);
     EQ_D(31.25, cJSON_GetObjectItem(cJSON_GetObjectItem(r, "params"), "freq_hz")->valuedouble);
     EQ_D(123456789012.0, cJSON_GetObjectItem(r, "t0_us")->valuedouble);
+    EQ_D(2200000, cJSON_GetObjectItem(r, "r_ext_ohm")->valuedouble);
+    EQ_D(-1.5, cJSON_GetObjectItem(r, "cal_offset_nA")->valuedouble);
+    EQ_D(1.25, cJSON_GetObjectItem(r, "cal_gain")->valuedouble);
     TEST_ASSERT_EQUAL(15, cJSON_GetArraySize(cJSON_GetObjectItem(r, "cols")));
     TEST_ASSERT_EQUAL_STRING("i_nA", cJSON_GetArrayItem(cJSON_GetObjectItem(r, "cols"), 13)->valuestring);
     cJSON_Delete(r);
