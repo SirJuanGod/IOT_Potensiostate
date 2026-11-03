@@ -98,8 +98,9 @@ static pass_res_t run_pass(const ps_params_t *p, uint8_t gain, uint8_t pga, int6
     esp_err_t e;
     s_n = 0;
     *t0_out = esp_timer_get_time();
-    /* stop recibido entre pasadas (p. ej. durante la publicación de la exploración): no se toca la celda */
-    if (xTaskNotifyWaitIndexed(0, 0, EVT_STOP, &ev, 0) == pdTRUE && (ev & EVT_STOP)) return PASS_ABORTED;
+    /* stop ya recibido (junto con RUN o entre pasadas): no se toca la celda. Se lee el valor y no el estado,
+     * porque la espera de meas_task pudo consumir el estado dejando EVT_STOP en el valor. */
+    if (ulTaskNotifyValueClearIndexed(NULL, 0, EVT_STOP) & EVT_STOP) return PASS_ABORTED;
 
     if ((e = lmp_configure(gain, s_prof.rload_idx)) != ESP_OK) return fail_hw("lmp", e);
     /* asentamiento tras configurar el LMP, antes del primer paso; +1 tick porque vTaskDelay(n) puede durar n-1 */
@@ -124,7 +125,8 @@ static pass_res_t run_pass(const ps_params_t *p, uint8_t gain, uint8_t pga, int6
         int dr = -1;
         if (st.sample) {
             if (s_n >= PS_MAX_SAMPLES) return fail(PS_ERR_RANGE, "points", PS_MAX_SAMPLES, "demasiados puntos");
-            const uint32_t pre = s_prof.settle_us + PS_WRITE_US;
+            /* el disparo va en t_end − conv − margen: el margen también sale de la ventana (como ps_min_sample_step_us) */
+            const uint32_t pre = s_prof.settle_us + PS_WRITE_US + PS_ADC_MARGIN_US;
             dr = st.dur_us > pre ? ps_pick_dr(st.dur_us - pre) : -1;
             if (dr < 0) return fail(PS_ERR_RANGE, "dur_us", (int32_t)st.dur_us, "paso mas corto que la conversion");
             /* la conversión termina al final del paso, como en KickStat */
@@ -198,7 +200,11 @@ static pass_res_t do_pass(const ps_params_t *p, ps_gain_knobs_t k, int64_t *t0)
     esp_timer_stop(s_step_tmr);
     const char *field;
     esp_err_t e = safe_state(&field);
-    if (e != ESP_OK && r != PASS_ERROR) r = fail_hw(field, e);
+    if (e != ESP_OK) e = safe_state(&field);   /* un reintento */
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "estado seguro fallido (%s: %s): la celda puede seguir polarizada", field, esp_err_to_name(e));
+        if (r != PASS_ERROR) r = fail_hw(field, e);
+    }
     analyze(p->tec, k.gain_idx);
     return r;
 }
@@ -227,7 +233,7 @@ static void finish(pass_res_t r, ps_pass_t pass, const ps_params_t *p, ps_gain_k
     float conc;
     if (r == PASS_ABORTED) flags |= PS_RUN_ABORTED;
     if (r == PASS_ERROR) { flags |= PS_RUN_ERROR; pub_status("error", &s_err); }
-    if (p->tec != PS_TEC_CA && !s_feat.has_peak) flags |= PS_RUN_NO_PEAK;
+    if (r == PASS_OK && p->tec != PS_TEC_CA && !s_feat.has_peak) flags |= PS_RUN_NO_PEAK;
     if (r == PASS_OK && model_predict(&s_feat, p, &conc)) ESP_LOGI(TAG, "concentracion estimada: %.4f", conc);
     publish(pass, p, k, t0, n_adj, flags, true);
 }
@@ -287,8 +293,10 @@ static void meas_task(void *arg)
     (void)arg;
     for (;;) {
         uint32_t ev = 0;
-        xTaskNotifyWaitIndexed(0, 0, EVT_ALL, &ev, portMAX_DELAY);
-        if (!(ev & EVT_RUN)) continue;   /* stop sin run en curso o restos de una pasada: se descartan */
+        /* EVT_STOP no se borra aquí: si llega en el mismo lote que RUN lo atiende run_pass;
+         * un stop viejo lo borra engine_submit antes de avisar RUN. */
+        xTaskNotifyWaitIndexed(0, 0, EVT_RUN | EVT_STEP_BITS, &ev, portMAX_DELAY);
+        if (!(ev & EVT_RUN)) continue;   /* stop sin run en curso o restos de una pasada */
         ESP_LOGI(TAG, "run '%s'", s_cmd.id);
         bool touched = run();
         s_busy = false;   /* s_cmd y los buffers ya están libres (la publicación terminó) */
@@ -320,6 +328,7 @@ esp_err_t engine_submit(const ps_cmd_t *run)
     taskEXIT_CRITICAL(&s_mux);
     if (was) return ESP_ERR_INVALID_STATE;
     s_cmd = *run;
+    ulTaskNotifyValueClearIndexed(s_task, 0, EVT_STOP);   /* stop anterior a este run: no lo aborta */
     xTaskNotifyIndexed(s_task, 0, EVT_RUN, eSetBits);
     return ESP_OK;
 }

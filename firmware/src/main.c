@@ -112,5 +112,6 @@ void app_main(void)
     hw_check("estado seguro", engine_safe_state());
 
     ESP_ERROR_CHECK(pub_start());
+    net_set_busy_query(engine_busy);
     ESP_ERROR_CHECK(net_start(on_cmd));
 }

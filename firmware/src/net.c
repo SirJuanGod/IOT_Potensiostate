@@ -17,8 +17,10 @@
 static const char *TAG = "net";
 static const char LWT_MSG[] = "{\"state\":\"offline\"}";
 static const char IDLE_MSG[] = "{\"state\":\"idle\"}";
+static const char RUNNING_MSG[] = "{\"state\":\"running\"}";
 
 static net_cmd_cb_t s_cb;
+static bool (*s_busy_fn)(void);
 static esp_mqtt_client_handle_t s_client;
 static esp_timer_handle_t s_retry;
 static volatile bool s_connected;
@@ -47,7 +49,7 @@ static void on_mqtt(void *arg, esp_event_base_t base, int32_t id, void *data)
     case MQTT_EVENT_CONNECTED:
         s_connected = true;
         ESP_LOGI(TAG, "MQTT conectado");
-        esp_mqtt_client_publish(s_client, TOPIC_PREFIX "status", IDLE_MSG, 0, 1, 1);
+        esp_mqtt_client_publish(s_client, TOPIC_PREFIX "status", s_busy_fn && s_busy_fn() ? RUNNING_MSG : IDLE_MSG, 0, 1, 1);
         esp_mqtt_client_subscribe(s_client, TOPIC_PREFIX "cmd", 1);
         break;
     case MQTT_EVENT_DISCONNECTED:
@@ -135,6 +137,11 @@ esp_err_t net_publish(const char *sub, const char *data, int len, bool retain)
     char topic[64];
     if (snprintf(topic, sizeof topic, TOPIC_PREFIX "%s", sub) >= (int)sizeof topic) return ESP_ERR_INVALID_ARG;
     return esp_mqtt_client_publish(s_client, topic, data, len, 1, retain) < 0 ? ESP_FAIL : ESP_OK;
+}
+
+void net_set_busy_query(bool (*fn)(void))
+{
+    s_busy_fn = fn;
 }
 
 bool net_connected(void)
